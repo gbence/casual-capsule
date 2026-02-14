@@ -6,7 +6,7 @@ common developer tools.
 ## What is in this repo
 
 - `Dockerfile`: Main image based on `jdxcode/mise` with Node, Go, npm,
-  Codex, OpenAI CLI, Copilot, and Vim plugin setup.
+  Codex, OpenAI CLI, Docker CLI, Compose plugin, Copilot, and Vim setup.
 - `compose.yml`: Local compose service (`cli`) that builds from `Dockerfile`.
 - `cc.sh`: Launcher script for running the CLI from any project directory.
 
@@ -30,8 +30,11 @@ docker build -t casual-capsule:latest .
 docker run --rm -it \
   -e OPENAI_API_KEY \
   -e GITHUB_TOKEN \
+  -e DOCKER_HOST=unix:///var/run/docker.sock \
   -w /workspace \
+  --group-add "$(stat -c '%g' /var/run/docker.sock)" \
   -v "$PWD:/workspace" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   -v "$HOME/.codex:/home/user/.codex" \
   -v "$HOME/.config/gh:/home/user/.config/gh" \
   -v "$HOME/.local/share/gh:/home/user/.local/share/gh" \
@@ -47,9 +50,14 @@ copilot
 
 ### 3. Use `cc.sh` (recommended)
 
-`cc.sh` sets `CC_WORKDIR` to your current directory and runs the CLI service
-from this repository's Compose file. `compose.yml` also falls back to `PWD`
-if `CC_WORKDIR` is not set.
+`cc.sh` sets `CC_WORKDIR` to your current directory and runs the CLI
+service from this repository's Compose file. `compose.yml` also falls back
+to `PWD` if `CC_WORKDIR` is not set. It also detects `DOCKER_GID` from
+the active Docker socket when possible.
+If detection fails, it defaults to `991` on macOS and `999` on Linux.
+On macOS, if auto-detection returns `20` (`staff`), `cc.sh` overrides it to
+`991` because `20` is commonly not usable for Docker socket access here.
+If you export `DOCKER_GID` yourself, `cc.sh` keeps your explicit value.
 
 From this repo:
 
@@ -79,6 +87,7 @@ Optional: pass a command instead of the default shell.
 ```bash
 cc codex
 cc bash -lc "go version && node -v"
+cc docker ps
 ```
 
 ### 4. Use Docker Compose directly
@@ -88,6 +97,27 @@ If you prefer direct Compose commands:
 ```bash
 docker compose up --build
 ```
+
+If Docker socket permissions fail, set `DOCKER_GID` and retry:
+
+```bash
+export DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+docker compose run --rm cli docker ps
+```
+
+On macOS, use:
+
+```bash
+export DOCKER_GID="$(stat -f '%g' /var/run/docker.sock)"
+docker compose run --rm cli docker ps
+```
+
+## Security Note
+
+This setup mounts `/var/run/docker.sock` into the container so processes inside
+the container can control the host Docker daemon.
+Treat this as effectively host-level access. Do not use this setup with
+untrusted code, untrusted users, or shared multi-tenant hosts.
 
 ## Code Review Findings
 

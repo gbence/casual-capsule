@@ -1,14 +1,17 @@
 services:
   cli:
     build: .
+    user: "8888:${DOCKER_GID:-999}"
     working_dir: /workspace
     environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
       - GITHUB_TOKEN
       - OPENAI_BASE_URL
       - OPENAI_API_KEY
     restart: "no"
     volumes:
       - ${CC_WORKDIR:-${PWD}}:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.codex:/home/user/.codex
       - ${HOME}/.config/gh:/home/user/.config/gh
       - ${HOME}/.local/share/gh:/home/user/.local/share/gh
