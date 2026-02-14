@@ -8,6 +8,7 @@ common developer tools.
 - `Dockerfile`: Main image based on `jdxcode/mise` with Node, Go, npm,
   Codex, OpenAI CLI, Copilot, and Vim plugin setup.
 - `compose.yml`: Local compose service (`cli`) that builds from `Dockerfile`.
+- `cc.sh`: Launcher script for running the CLI from any project directory.
 
 ## Prerequisites
 
@@ -44,14 +45,45 @@ codex
 copilot
 ```
 
-### 3. Use Docker Compose
+### 3. Use `cc.sh` (recommended)
 
-`compose.yml` now uses:
+`cc.sh` sets `CC_WORKDIR` to your current directory and runs the CLI service
+from this repository's Compose file. `compose.yml` also falls back to `PWD`
+if `CC_WORKDIR` is not set.
 
-- `${PWD}` for the project working directory (mounted at `/workspace`)
-- `${HOME}` for user config mounts
+From this repo:
 
-Then run:
+```bash
+./cc.sh
+```
+
+From any directory, with an alias:
+
+```bash
+alias cc="/absolute/path/to/casual-capsule/cc.sh"
+```
+
+Add that alias to one of these files:
+
+- Bash: `~/.bashrc` (or `~/.bash_profile`)
+- Zsh: `~/.zshrc`
+
+Then reload your shell and run:
+
+```bash
+cc
+```
+
+Optional: pass a command instead of the default shell.
+
+```bash
+cc codex
+cc bash -lc "go version && node -v"
+```
+
+### 4. Use Docker Compose directly
+
+If you prefer direct Compose commands:
 
 ```bash
 docker compose up --build
@@ -61,7 +93,7 @@ docker compose up --build
 
 ### High
 
-1. Resolved: host-specific volume mounts were replaced with `${PWD}`
+1. Resolved: host-specific volume mounts were replaced with `CC_WORKDIR`
    and `${HOME}` for portability.
    - `compose.yml:10`
    - `compose.yml:11`
@@ -89,5 +121,4 @@ docker compose up --build
 ## Suggested Follow-up Fixes
 
 1. Pin base image digests for stronger reproducibility.
-2. Add a thin launcher script for Compose so `${PWD}` is always
-   exported predictably across shells and OS setups.
+2. Add shell completion for `cc.sh` command argument passthrough.
