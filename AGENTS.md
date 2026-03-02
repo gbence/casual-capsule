@@ -34,3 +34,5 @@
 4. Keep secrets in runtime environment or secret managers, never hardcoded.
 5. For interactive shells, do not use auto-restart policies.
 6. For Docker socket access, support Linux and macOS group-ID differences.
+7. Keep the CLI user as `8888:100` and inject host Docker GID with
+   `DOCKER_GID` + Compose `group_add`.

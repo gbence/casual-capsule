@@ -6,15 +6,14 @@ common developer tools.
 ## What is in this repo
 
 - `Dockerfile`: Main image based on `jdxcode/mise` with Node, Go, npm,
-  Codex, OpenAI CLI, Docker CLI, Compose plugin, Copilot, and Vim setup.
-- `compose.yml`: Local compose service (`cli`) that builds from `Dockerfile`.
+  Codex, OpenAI CLI, Docker CLI, Compose plugin, and Copilot CLI.
+- `compose.yml`: Local compose service (`cli`) that builds from `Dockerfile`,
+  runs as `8888:100`, and adds Docker socket access via `DOCKER_GID`.
 - `cc.sh`: Launcher script for running the CLI from any project directory.
 
 ## Prerequisites
 
 - Docker Engine 24+ and Docker Compose v2
-- OpenAI API key (`OPENAI_API_KEY`)
-- Optional GitHub token (`GITHUB_TOKEN`) for GitHub/Copilot integrations
 
 ## Usage
 
@@ -28,16 +27,13 @@ docker build -t casual-capsule:latest .
 
 ```bash
 docker run --rm -it \
-  -e OPENAI_API_KEY \
-  -e GITHUB_TOKEN \
   -e DOCKER_HOST=unix:///var/run/docker.sock \
+  -e DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)" \
   -w /workspace \
-  --group-add "$(stat -c '%g' /var/run/docker.sock)" \
+  --user 8888:100 \
+  --group-add "${DOCKER_GID}" \
   -v "$PWD:/workspace" \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$HOME/.codex:/home/user/.codex" \
-  -v "$HOME/.config/gh:/home/user/.config/gh" \
-  -v "$HOME/.local/share/gh:/home/user/.local/share/gh" \
   casual-capsule:latest
 ```
 
@@ -54,6 +50,8 @@ copilot
 service from this repository's Compose file. `compose.yml` also falls back
 to `PWD` if `CC_WORKDIR` is not set. It also detects `DOCKER_GID` from
 the active Docker socket when possible.
+The service runs as `uid=8888,gid=100` and uses `group_add` with
+`DOCKER_GID` for host Docker socket access.
 If detection fails, it defaults to `991` on macOS and `999` on Linux.
 On macOS, if auto-detection returns `20` (`staff`), `cc.sh` overrides it to
 `991` because `20` is commonly not usable for Docker socket access here.
@@ -111,6 +109,9 @@ On macOS, use:
 export DOCKER_GID="$(stat -f '%g' /var/run/docker.sock)"
 docker compose run --rm cli docker ps
 ```
+
+Note: the injected Docker group may appear as a numeric GID inside the
+container if no matching group name exists in `/etc/group`.
 
 ## Security Note
 
