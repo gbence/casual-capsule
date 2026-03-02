@@ -1,12 +1,10 @@
 #------------------------------------------------------------------------------
 # Runtime
 #------------------------------------------------------------------------------
-FROM jdxcode/mise:2026.2 AS runtime
+FROM jdxcode/mise:2026.3 AS runtime
+
 WORKDIR /app
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    ca-certificates curl git gnupg sudo vim && \
-    rm -rf /var/lib/apt/lists/*
+
 RUN install -m 0755 -d /etc/apt/keyrings && \
     . /etc/os-release && \
     DISTRO_ID="${ID}" && \
@@ -18,18 +16,16 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     "signed-by=/etc/apt/keyrings/docker.gpg] " \
     "https://download.docker.com/linux/${DISTRO_ID} " \
     "${DISTRO_CODENAME} stable" \
-    > /etc/apt/sources.list.d/docker.list && \
-    apt-get update && \
+    > /etc/apt/sources.list.d/docker.list
+
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    docker-buildx-plugin docker-ce-cli docker-compose-plugin && \
+    docker-buildx-plugin docker-ce-cli docker-compose-plugin \
+    ca-certificates curl git gnupg sudo vim less && \
     rm -rf /var/lib/apt/lists/*
 
 # Add user
-RUN useradd -g 100 -m -u 8888 user
-
-# Set up ownership in home
-RUN mkdir -p /home/user/.codex /home/user/.config \
-    /home/user/.local/share/gh && chown user: -Rh /home/user
+RUN useradd -m -u 8888 -g 100 -s /bin/bash user
 
 # Initialize mise root for 'user'
 RUN mkdir -p /mise && chown -Rh user: /mise
@@ -52,17 +48,9 @@ RUN npm install -g @openai/codex open-codex
 
 # Install Copilot and vim extension
 RUN npm install -g @github/copilot
-RUN mkdir -p /home/user/.vim/pack/github/start && \
-    git clone https://github.com/github/copilot.vim \
-        /home/user/.vim/pack/github/start/copilot.vim
 
 # Remove mise's original entrypoint
 ENTRYPOINT []
 
-# Finalize installation/configuration
-RUN mkdir -p ~/.codex && echo '{ "model": "o4-mini" }' > ~/.codex/config.json
-
-# By default start CLI
+# By default start a shell
 CMD [ "/bin/bash" ]
-#CMD [ "codex" ]
-#CMD [ "copilot" ]
