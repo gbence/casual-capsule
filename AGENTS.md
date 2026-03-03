@@ -6,6 +6,8 @@
 2. Update docs when behavior or workflow changes.
 3. Do not rewrite shared history unless explicitly requested.
 4. Validate changes locally when practical.
+5. When adding shell flags or argument parsing, include edge-case tests for
+   empty-argument invocations.
 
 ## Commit Ownership
 
@@ -25,6 +27,8 @@
 ## Style Rules
 
 1. Keep code and config lines at 80 characters maximum.
+2. Keep shell scripts compatible with Bash 3.2+ unless the file explicitly
+   requires a newer Bash version.
 
 ## Docker and Compose
 

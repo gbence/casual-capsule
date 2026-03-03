@@ -59,6 +59,12 @@ On macOS, if auto-detection returns `20` (`staff`), `capsule.sh` overrides it
 to `991` because `20` is commonly not usable for Docker socket access here.
 If you export `DOCKER_GID` yourself, `capsule.sh` keeps your explicit value.
 
+Launcher options:
+
+- `-b`, `--build`: run `docker compose build cli` before `run`.
+- `-h`, `--help`: show usage.
+- `--`: stop launcher option parsing and pass remaining args to runtime.
+
 From this repo:
 
 ```bash
@@ -89,6 +95,22 @@ capsule codex
 capsule bash -lc "go version && node -v"
 capsule docker ps
 ```
+
+Optional: build the `cli` image before runtime.
+
+```bash
+capsule --build
+capsule -b codex
+```
+
+Use `--` when runtime arguments overlap launcher flags.
+
+```bash
+capsule -- --build true
+```
+
+`capsule -b` (with no runtime command) is supported and will still start the
+default runtime after the build.
 
 ### 4. Use Docker Compose directly
 

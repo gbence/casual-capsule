@@ -43,6 +43,20 @@ assert_equals() {
   fi
 }
 
+assert_log_line() {
+  local expected="$1"
+  local line_no="$2"
+  local file="$3"
+  local msg="$4"
+  local actual=""
+  actual="$(sed -n "${line_no}p" "$file")"
+  if [[ "$expected" == "$actual" ]]; then
+    pass "$msg"
+  else
+    fail "$msg (expected=$expected actual=$actual)"
+  fi
+}
+
 make_mock_bin() {
   local dir="$1"
   mkdir -p "$dir"
@@ -119,6 +133,91 @@ test_compose_contract() {
   assert_file_contains "$COMPOSE_PATH" \
     '${CAPSULE_WORKDIR:-${CC_WORKDIR:-${PWD}}}:/home/workspace' \
     "compose keeps CAPSULE_WORKDIR with compatibility fallback"
+}
+
+test_build_flag_runs_build_then_runtime() {
+  local tdir="$TEST_TMPDIR/build-flag"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  local expected_build=""
+  local expected_run=""
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" --build true
+
+  expected_build="ARGS=compose -f $COMPOSE_PATH --project-directory $ROOT_DIR"
+  expected_build="$expected_build build cli"
+  expected_run="ARGS=compose -f $COMPOSE_PATH --project-directory $ROOT_DIR"
+  expected_run="$expected_run run --rm cli true"
+
+  assert_log_line \
+    "$expected_build" \
+    3 "$log_file" "build flag runs compose build first"
+  assert_log_line \
+    "$expected_run" \
+    6 "$log_file" "build flag still runs compose runtime"
+}
+
+test_double_dash_keeps_runtime_flags() {
+  local tdir="$TEST_TMPDIR/double-dash"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  local expected_args=""
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" -- --build true
+
+  expected_args="compose -f $COMPOSE_PATH --project-directory $ROOT_DIR"
+  expected_args="$expected_args run --rm cli --build true"
+
+  assert_equals \
+    "$expected_args" \
+    "$(value_from_log ARGS "$log_file")" \
+    "double dash passes build-like flags to runtime command"
+}
+
+test_build_flag_without_runtime_args() {
+  local tdir="$TEST_TMPDIR/build-no-args"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  local expected_build=""
+  local expected_run=""
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" -b
+
+  expected_build="ARGS=compose -f $COMPOSE_PATH --project-directory $ROOT_DIR"
+  expected_build="$expected_build build cli"
+  expected_run="ARGS=compose -f $COMPOSE_PATH --project-directory $ROOT_DIR"
+  expected_run="$expected_run run --rm cli"
+
+  assert_log_line \
+    "$expected_build" \
+    3 "$log_file" "build flag works without runtime args (build call)"
+  assert_log_line \
+    "$expected_run" \
+    6 "$log_file" "build flag works without runtime args (run call)"
+}
+
+test_plain_runtime_without_args() {
+  local tdir="$TEST_TMPDIR/run-no-args"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  local expected_run=""
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file"
+
+  expected_run="compose -f $COMPOSE_PATH --project-directory $ROOT_DIR"
+  expected_run="$expected_run run --rm cli"
+  assert_equals \
+    "$expected_run" \
+    "$(value_from_log ARGS "$log_file")" \
+    "plain runtime works without runtime args"
 }
 
 test_explicit_docker_gid_passthrough() {
@@ -253,6 +352,10 @@ main() {
   fi
 
   test_compose_contract
+  test_build_flag_runs_build_then_runtime
+  test_double_dash_keeps_runtime_flags
+  test_build_flag_without_runtime_args
+  test_plain_runtime_without_args
   test_explicit_docker_gid_passthrough
   test_workdir_precedence
   test_linux_gid_autodetect_from_docker_host
