@@ -22,6 +22,26 @@
 4. Write the body as bullet points.
 5. Write each bullet as a full sentence explaining what changed and why.
 
+## Commit Attribution
+
+Include an `Assisted-by` trailer for every commit where an AI agent
+contributed, following the Linux kernel gen-AI attribution convention:
+
+```
+Assisted-by: AGENT_NAME:MODEL_VERSION [TOOL1] [TOOL2]
+```
+
+- `AGENT_NAME` is the name of the AI tool or framework.
+- `MODEL_VERSION` is the specific model version used.
+- `[TOOL1] [TOOL2]` are optional specialised analysis tools (e.g.
+  `shellcheck`, `sparse`); basic tools (`git`, editors) are omitted.
+
+Example trailer block:
+
+```
+Assisted-by: Copilot:claude-sonnet-4.6
+```
+
 ## Style Rules
 
 1. Keep code and config lines at 80 characters maximum.
