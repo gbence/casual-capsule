@@ -3,9 +3,6 @@
 #------------------------------------------------------------------------------
 FROM jdxcode/mise:2026.3 AS runtime
 
-ARG CAPSULE_UID=1000
-ARG CAPSULE_GID=100
-
 WORKDIR /home/workspace
 
 RUN install -m 0755 -d /etc/apt/keyrings && \
@@ -37,12 +34,11 @@ RUN apt-get update && \
     ln -sf /usr/bin/fdfind /usr/local/bin/fd && \
     rm -rf /var/lib/apt/lists/*
 
-# Add user (reuse existing group when GID already exists)
-RUN if ! getent group "${CAPSULE_GID}" >/dev/null 2>&1; then \
-      groupadd -g "${CAPSULE_GID}" capsule; \
+# Add the fixed in-capsule user used by idmapped workspaces.
+RUN if ! getent group 1000 >/dev/null 2>&1; then \
+      groupadd -g 1000 capsule; \
     fi && \
-    useradd -m -u "${CAPSULE_UID}" \
-      -g "${CAPSULE_GID}" -s /bin/bash user
+    useradd -m -u 1000 -g 1000 -s /bin/bash user
 
 # Initialize mise root for 'user'
 RUN mkdir -p /mise && chown -Rh user: /mise
@@ -73,7 +69,8 @@ RUN npm install -g @openai/codex open-codex
 # Install Copilot and vim extension
 RUN npm install -g @github/copilot
 
-# Entrypoint runs as root, adjusts UID/GID, drops privileges
+# Entrypoint runs as root, adds Docker socket groups, and can fall back
+# to runtime UID/GID matching when idmapped mounts are unavailable.
 USER root
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/bash", "-l"]

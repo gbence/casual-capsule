@@ -2,18 +2,20 @@
 set -euo pipefail
 
 # ----------------------------------------------------------------
-# Runtime UID/GID adjustment entrypoint.
+# Runtime entrypoint.
 #
 # When running as root (the default), this script:
-#   1. Adjusts the "user" account to match CAPSULE_UID/CAPSULE_GID.
-#   2. Adds "user" to the DOCKER_GID group for socket access.
-#   3. Fixes ownership of /mise and /home/user when the UID/GID
-#      changed OR a named volume has stale ownership from a
-#      previous image build.
-#   4. Sets HOME, USER, and LOGNAME (setpriv does not update
+#   1. Keeps the default capsule user at 1000:1000 for idmapped
+#      workspace mounts.
+#   2. Optionally falls back to CAPSULE_UID/CAPSULE_GID matching
+#      when the launcher disables idmapped mounts.
+#   3. Adds "user" to the DOCKER_GID group for socket access.
+#   4. Fixes ownership of /mise and /home/user when the runtime
+#      fallback changes the UID/GID or a named volume is stale.
+#   5. Sets HOME, USER, and LOGNAME (setpriv does not update
 #      environment variables, so they would otherwise stay as
 #      root's values from the Dockerfile USER directive).
-#   5. Drops privileges via setpriv and execs the command.
+#   6. Drops privileges via setpriv and execs the command.
 #
 # When running as non-root (e.g. --user flag), skips all
 # adjustments and execs the command directly.

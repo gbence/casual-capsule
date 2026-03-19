@@ -2,9 +2,6 @@ services:
   cli:
     build:
       context: .
-      args:
-        CAPSULE_UID: "${CAPSULE_UID:-1000}"
-        CAPSULE_GID: "${CAPSULE_GID:-100}"
     working_dir: /home/workspace
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
@@ -13,9 +10,15 @@ services:
       - CAPSULE_GID=${CAPSULE_GID:-}
     restart: "no"
     volumes:
-      - ${CAPSULE_WORKDIR:-${CC_WORKDIR:-${PWD}}}:/home/workspace
-      - /var/run/docker.sock:/var/run/docker.sock
-      - home:/home/user
+      - type: bind
+        source: ${CAPSULE_MOUNT_SOURCE:-${CAPSULE_WORKDIR:-${PWD}}}
+        target: /home/workspace
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: volume
+        source: home
+        target: /home/user
 
 volumes:
   home:
