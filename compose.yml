@@ -2,8 +2,8 @@ services:
   cli:
     build:
       context: .
-      args:
-        GITHUB_API_TOKEN: ${GITHUB_API_TOKEN}
+      secrets:
+        - github_api_token
     user: "1000:1000"
     hostname: capsule
     group_add:
@@ -17,8 +17,10 @@ services:
       - ${CAPSULE_WORKDIR:-${CC_WORKDIR:-${PWD}}}:/home/workspace
       - /var/run/docker.sock:/var/run/docker.sock
       - home:/home/user
-      - mise:/mise
+
+secrets:
+  github_api_token:
+    environment: GITHUB_API_TOKEN
 
 volumes:
   home:
-  mise:

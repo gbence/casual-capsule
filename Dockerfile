@@ -52,19 +52,14 @@ RUN --mount=type=cache,id=apt-global,sharing=locked,target=/var/cache/apt \
 # Add user
 RUN groupadd -g 1000 user && useradd -m -u 1000 -g 1000 -s /bin/bash user
 
-# set mise paths
-ENV MISE_DATA_DIR="/mise"
-ENV MISE_CONFIG_DIR="/mise"
-ENV MISE_CACHE_DIR="/mise/cache"
-ENV MISE_INSTALL_PATH="/usr/local/bin/mise"
-ENV PATH="/mise/shims:$PATH"
-
-# Initialize mise root for 'user'
-RUN mkdir -p /mise && chown -Rh user: /mise
-COPY --chown=user docker/mise.toml /mise/config.toml
-
 # Install mise
+ENV MISE_INSTALL_PATH="/usr/local/bin/mise"
 RUN curl https://mise.run | sh
+
+# Install system tools with mise
+ARG MISE_SYSTEM_TOOLS="aqua:github/copilot-cli bat eza fd gh jq ripgrep usage uv"
+RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN \
+    mise install --system ${MISE_SYSTEM_TOOLS}
 
 # Automatically activate mise
 RUN echo 'eval "$(mise activate bash)"' >> /etc/profile
@@ -73,15 +68,14 @@ RUN echo 'eval "$(mise complete bash)"' >> /etc/profile
 # Switch user
 USER user
 
-# Copy GITHUB_API_TOKEN from builder env
-ARG GITHUB_API_TOKEN=""
-ENV GITHUB_API_TOKEN=${GITHUB_API_TOKEN}
+# Activate system tools ,env=GITHUB_API_TOKEN \
+RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN \
+    mise use -g ${MISE_SYSTEM_TOOLS} python@3.14
 
-# Install mise and tools
-RUN mise install
-
-# Install Copilot and vim extension
-RUN npm install -g @github/copilot
+# GitHub token login
+RUN --mount=type=secret,id=github_api_token,uid=1000 \
+    [ -f /run/secrets/github_api_token ] && \
+      ${MISE_INSTALL_PATH} x -- gh auth login --with-token </run/secrets/github_api_token
 
 # Use a common AGENTS.md in the direct parent of `workspace`
 COPY --chmod=644 docker/AGENTS.md /home/
