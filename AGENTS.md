@@ -58,9 +58,12 @@ Assisted-by: Copilot:claude-sonnet-4.6
 4. Keep secrets in runtime environment or secret managers, never hardcoded.
 5. For interactive shells, do not use auto-restart policies.
 6. For Docker socket access, support Linux and macOS group-ID differences.
-7. Keep the CLI user as `1000:1000` and inject host Docker GID with
-   `DOCKER_GID` + Compose `group_add`.
-8. Keep baseline agent utilities installed in the image: `rg`, `fd`, `jq`,
-   `shellcheck`, `gh`, and `tree`.
-9. When changing Dockerfile tool packages, update README tooling docs and
-   tests to keep the tooling contract explicit.
+7. `capsule.sh` auto-detects the host user's UID/GID via `id -u`/
+   `id -g`; explicit `CAPSULE_UID`/`CAPSULE_GID` env vars take
+   precedence; the fallback when detection fails is `1000:100`.
+   The entrypoint adjusts UID/GID, handles `DOCKER_GID` group
+   membership, and fixes stale volume ownership at runtime.
+8. Keep baseline agent utilities installed in the image: `rg`, `fd`,
+   `jq`, `shellcheck`, `gh`, and `tree`.
+9. When changing Dockerfile tool packages, update README tooling docs
+   and tests to keep the tooling contract explicit.

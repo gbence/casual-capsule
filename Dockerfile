@@ -18,8 +18,6 @@ RUN --mount=type=cache,id=apt-global,sharing=locked,target=/var/cache/apt \
     rm -rf /var/lib/apt/lists/* && \
     busybox --install -s
 
-WORKDIR /home/workspace
-
 # setup docker
 RUN install -m 0755 -d /etc/apt/keyrings && \
     . /etc/os-release && \
@@ -48,8 +46,16 @@ RUN --mount=type=cache,id=apt-global,sharing=locked,target=/var/cache/apt \
     docker-buildx-plugin docker-ce-cli docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
-# Add user
-RUN groupadd -g 1000 user && useradd -m -u 1000 -g 1000 -s /bin/bash user
+# Add user (reuse existing group when GID already exists)
+ARG CAPSULE_UID=1000
+ARG CAPSULE_GID=100
+RUN if ! getent group "${CAPSULE_GID}" >/dev/null 2>&1; then \
+      groupadd -g "${CAPSULE_GID}" capsule; \
+    fi && \
+    useradd -m -u "${CAPSULE_UID}" \
+      -g "${CAPSULE_GID}" -s /bin/bash user
+
+WORKDIR /home/workspace
 
 # Install mise
 ARG MISE_VERSION=""
@@ -64,6 +70,9 @@ RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN \
 # Activate mise in interactive shells
 RUN echo 'eval "$(mise activate bash)"' >> /etc/profile
 RUN echo 'eval "$(mise complete bash)"' >> /etc/profile
+
+# Copy entrypoint (owned by root for security)
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/
 
 # Switch user
 USER user
@@ -89,5 +98,7 @@ COPY --chmod=644 docker/AGENTS.md /home/
 # Add mise shims to path
 ENV PATH="/home/user/.local/share/mise/shims:$PATH"
 
-# By default start a shell
-CMD [ "/bin/bash", "-il" ]
+# Entrypoint runs as root, adjusts UID/GID, drops privileges
+USER root
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/bin/bash", "-il"]

@@ -2,16 +2,18 @@ services:
   cli:
     build:
       context: .
+      args:
+        CAPSULE_UID: "${CAPSULE_UID:-1000}"
+        CAPSULE_GID: "${CAPSULE_GID:-100}"
       secrets:
         - github_api_token
-    user: "1000:1000"
     hostname: capsule
-    group_add:
-      - "${DOCKER_GID:-999}"
     working_dir: /home/workspace
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - DOCKER_GID=${DOCKER_GID:-999}
+      - CAPSULE_UID=${CAPSULE_UID:-}
+      - CAPSULE_GID=${CAPSULE_GID:-}
     restart: "no"
     volumes:
       - ${CAPSULE_WORKDIR:-${CC_WORKDIR:-${PWD}}}:/home/workspace

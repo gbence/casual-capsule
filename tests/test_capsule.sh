@@ -5,6 +5,7 @@ ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)"
 SCRIPT_PATH="$ROOT_DIR/capsule.sh"
 COMPOSE_PATH="$ROOT_DIR/compose.yml"
 DOCKERFILE_PATH="$ROOT_DIR/Dockerfile"
+ENTRYPOINT_PATH="$ROOT_DIR/docker/entrypoint.sh"
 
 TEST_TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TEST_TMPDIR"' EXIT
@@ -77,6 +78,8 @@ if [[ "${1:-}" == "compose" ]]; then
   {
     printf 'ENV_DOCKER_GID=%s\n' "${DOCKER_GID:-}"
     printf 'ENV_CAPSULE_WORKDIR=%s\n' "${CAPSULE_WORKDIR:-}"
+    printf 'ENV_CAPSULE_UID=%s\n' "${CAPSULE_UID:-}"
+    printf 'ENV_CAPSULE_GID=%s\n' "${CAPSULE_GID:-}"
     printf 'ARGS=%s\n' "$*"
   } >>"${MOCK_LOG:?MOCK_LOG is required}"
   exit 0
@@ -110,7 +113,21 @@ fi
 /bin/ls "$@"
 EOF
 
-  chmod +x "$dir/docker" "$dir/stat" "$dir/uname" "$dir/ls"
+  cat >"$dir/id" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n "${MOCK_ID_FAIL:-}" ]]; then
+  exit 1
+fi
+case "${1:-}" in
+  -u) printf '%s\n' "${MOCK_ID_UID:-1000}" ;;
+  -g) printf '%s\n' "${MOCK_ID_GID:-100}" ;;
+  *) /usr/bin/id "$@" ;;
+esac
+EOF
+
+  chmod +x "$dir/docker" "$dir/stat" "$dir/uname" "$dir/ls" \
+    "$dir/id"
 }
 
 run_capsule() {
@@ -131,10 +148,18 @@ value_from_log() {
 
 # shellcheck disable=SC2016
 test_compose_contract() {
-  assert_file_contains "$COMPOSE_PATH" 'user: "1000:1000"' \
-    "compose keeps primary user/group fixed"
-  assert_file_contains "$COMPOSE_PATH" '- "${DOCKER_GID:-999}"' \
-    "compose injects Docker group from DOCKER_GID"
+  assert_file_contains "$COMPOSE_PATH" \
+    'CAPSULE_UID:-1000' \
+    "compose uses CAPSULE_UID build-arg default"
+  assert_file_contains "$COMPOSE_PATH" \
+    'CAPSULE_GID:-100' \
+    "compose uses CAPSULE_GID build-arg default"
+  assert_file_contains "$COMPOSE_PATH" \
+    'CAPSULE_UID=${CAPSULE_UID:-}' \
+    "compose passes CAPSULE_UID to container environment"
+  assert_file_contains "$COMPOSE_PATH" \
+    'CAPSULE_GID=${CAPSULE_GID:-}' \
+    "compose passes CAPSULE_GID to container environment"
   assert_file_contains "$COMPOSE_PATH" \
     '${CAPSULE_WORKDIR:-${CC_WORKDIR:-${PWD}}}:/home/workspace' \
     "compose keeps CAPSULE_WORKDIR with compatibility fallback"
@@ -147,8 +172,62 @@ test_dockerfile_tooling_contract() {
     "image installs tree for directory visualization"
   assert_file_contains "$DOCKERFILE_PATH" 'https://mise.run' \
     "image installs mise"
-  assert_file_contains "$DOCKERFILE_PATH" '/mise/config.toml' \
-    "image installs main mise config for tooling"
+}
+
+test_dockerfile_uid_gid_contract() {
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'ARG CAPSULE_UID=1000' \
+    "Dockerfile declares CAPSULE_UID build arg"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'ARG CAPSULE_GID=100' \
+    "Dockerfile declares CAPSULE_GID build arg"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'useradd -m -u "${CAPSULE_UID}"' \
+    "Dockerfile uses CAPSULE_UID in useradd"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/' \
+    "Dockerfile copies entrypoint script"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]' \
+    "Dockerfile sets entrypoint for runtime UID/GID"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'CMD ["/bin/bash", "-il"]' \
+    "Dockerfile uses login shell as default command"
+}
+
+test_entrypoint_contract() {
+  if ! bash -n "$ENTRYPOINT_PATH"; then
+    fail "entrypoint.sh has valid shell syntax"
+  else
+    pass "entrypoint.sh has valid shell syntax"
+  fi
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    'CAPSULE_UID' \
+    "entrypoint reads CAPSULE_UID"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    'CAPSULE_GID' \
+    "entrypoint reads CAPSULE_GID"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    'DOCKER_GID' \
+    "entrypoint handles DOCKER_GID group"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    'export HOME=' \
+    "entrypoint sets HOME before dropping privileges"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    'export USER=' \
+    "entrypoint sets USER before dropping privileges"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    'export LOGNAME=' \
+    "entrypoint sets LOGNAME before dropping privileges"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    'setpriv' \
+    "entrypoint drops privileges via setpriv"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    'stat -c' \
+    "entrypoint checks home dir ownership for stale volumes"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    'exec "$@"' \
+    "entrypoint has non-root fast path"
 }
 
 test_build_flag_runs_build_then_runtime() {
@@ -157,22 +236,26 @@ test_build_flag_runs_build_then_runtime() {
   local log_file="$tdir/log"
   local expected_build=""
   local expected_run=""
+  local mise_ver=""
+  if hash mise 2>/dev/null && hash jq 2>/dev/null; then
+    mise_ver="$(mise version --json | jq -r .latest)"
+  fi
   mkdir -p "$tdir"
   make_mock_bin "$mock_bin"
 
   DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" --build true
 
   expected_build="ARGS=compose -f $COMPOSE_PATH --project-directory $ROOT_DIR"
-  expected_build="$expected_build build cli"
+  expected_build="$expected_build build --build-arg MISE_VERSION=${mise_ver} cli"
   expected_run="ARGS=compose -f $COMPOSE_PATH --project-directory $ROOT_DIR"
   expected_run="$expected_run run --rm cli true"
 
   assert_log_line \
     "$expected_build" \
-    3 "$log_file" "build flag runs compose build first"
+    5 "$log_file" "build flag runs compose build first"
   assert_log_line \
     "$expected_run" \
-    6 "$log_file" "build flag still runs compose runtime"
+    10 "$log_file" "build flag still runs compose runtime"
 }
 
 test_double_dash_keeps_runtime_flags() {
@@ -200,22 +283,26 @@ test_build_flag_without_runtime_args() {
   local log_file="$tdir/log"
   local expected_build=""
   local expected_run=""
+  local mise_ver=""
+  if hash mise 2>/dev/null && hash jq 2>/dev/null; then
+    mise_ver="$(mise version --json | jq -r .latest)"
+  fi
   mkdir -p "$tdir"
   make_mock_bin "$mock_bin"
 
   DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" -b
 
   expected_build="ARGS=compose -f $COMPOSE_PATH --project-directory $ROOT_DIR"
-  expected_build="$expected_build build cli"
+  expected_build="$expected_build build --build-arg MISE_VERSION=${mise_ver} cli"
   expected_run="ARGS=compose -f $COMPOSE_PATH --project-directory $ROOT_DIR"
   expected_run="$expected_run run --rm cli"
 
   assert_log_line \
     "$expected_build" \
-    3 "$log_file" "build flag works without runtime args (build call)"
+    5 "$log_file" "build flag works without runtime args (build call)"
   assert_log_line \
     "$expected_run" \
-    6 "$log_file" "build flag works without runtime args (run call)"
+    10 "$log_file" "build flag works without runtime args (run call)"
 }
 
 test_plain_runtime_without_args() {
@@ -251,6 +338,66 @@ test_explicit_docker_gid_passthrough() {
   assert_equals "/tmp/capsule-workdir" \
     "$(value_from_log ENV_CAPSULE_WORKDIR "$log_file")" \
     "capsule forwards explicit CAPSULE_WORKDIR"
+}
+
+test_uid_gid_autodetect() {
+  local tdir="$TEST_TMPDIR/uid-autodetect"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  unset CAPSULE_UID CAPSULE_GID 2>/dev/null || true
+  DOCKER_GID=1111 MOCK_ID_UID=501 MOCK_ID_GID=20 \
+    run_capsule "$mock_bin" "$log_file" true
+
+  assert_equals "501" \
+    "$(value_from_log ENV_CAPSULE_UID "$log_file")" \
+    "CAPSULE_UID auto-detects from host user"
+  assert_equals "20" \
+    "$(value_from_log ENV_CAPSULE_GID "$log_file")" \
+    "CAPSULE_GID auto-detects from host user"
+}
+
+test_uid_gid_fallback_when_id_fails() {
+  local tdir="$TEST_TMPDIR/uid-fallback"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  local err_file="$tdir/err"
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  unset CAPSULE_UID CAPSULE_GID 2>/dev/null || true
+  DOCKER_GID=1111 MOCK_ID_FAIL=1 \
+    run_capsule "$mock_bin" "$log_file" true 2>"$err_file"
+
+  assert_equals "1000" \
+    "$(value_from_log ENV_CAPSULE_UID "$log_file")" \
+    "CAPSULE_UID falls back to 1000 when id fails"
+  assert_equals "100" \
+    "$(value_from_log ENV_CAPSULE_GID "$log_file")" \
+    "CAPSULE_GID falls back to 100 when id fails"
+  assert_file_contains "$err_file" \
+    "cannot detect host UID/GID" \
+    "fallback emits warning to stderr"
+}
+
+test_explicit_uid_gid_passthrough() {
+  local tdir="$TEST_TMPDIR/uid-explicit"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  DOCKER_GID=1111 CAPSULE_UID=2000 CAPSULE_GID=2000 \
+    run_capsule "$mock_bin" "$log_file" true
+
+  assert_equals "2000" \
+    "$(value_from_log ENV_CAPSULE_UID "$log_file")" \
+    "capsule forwards explicit CAPSULE_UID"
+  assert_equals "2000" \
+    "$(value_from_log ENV_CAPSULE_GID "$log_file")" \
+    "capsule forwards explicit CAPSULE_GID"
 }
 
 test_workdir_precedence() {
@@ -374,11 +521,16 @@ main() {
 
   test_compose_contract
   test_dockerfile_tooling_contract
+  test_dockerfile_uid_gid_contract
+  test_entrypoint_contract
   test_build_flag_runs_build_then_runtime
   test_double_dash_keeps_runtime_flags
   test_build_flag_without_runtime_args
   test_plain_runtime_without_args
   test_explicit_docker_gid_passthrough
+  test_uid_gid_autodetect
+  test_uid_gid_fallback_when_id_fails
+  test_explicit_uid_gid_passthrough
   test_workdir_precedence
   test_linux_gid_autodetect_from_docker_host
   test_bad_docker_host_falls_back_to_context_socket
