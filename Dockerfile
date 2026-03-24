@@ -61,7 +61,7 @@ ARG MISE_SYSTEM_TOOLS="aqua:github/copilot-cli bat eza fd gh jq ripgrep usage uv
 RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN \
     mise install --system ${MISE_SYSTEM_TOOLS}
 
-# Automatically activate mise
+# Activate mise in interactive shells
 RUN echo 'eval "$(mise activate bash)"' >> /etc/profile
 RUN echo 'eval "$(mise complete bash)"' >> /etc/profile
 
@@ -85,6 +85,9 @@ RUN mise x -- uv python install --default ${PYTHON_VERSION} && \
 
 # Use a common AGENTS.md in the direct parent of `workspace`
 COPY --chmod=644 docker/AGENTS.md /home/
+
+# Add mise shims to path
+ENV PATH="/home/user/.local/share/mise/shims:$PATH"
 
 # By default start a shell
 CMD [ "/bin/bash", "-il" ]
