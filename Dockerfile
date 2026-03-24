@@ -1,5 +1,4 @@
 # syntax=docker/dockerfile:1
-# check=skip=SecretsUsedInArgOrEnv
 
 ARG DEBIAN_VERSION=trixie
 
@@ -68,14 +67,20 @@ RUN echo 'eval "$(mise complete bash)"' >> /etc/profile
 # Switch user
 USER user
 
-# Activate system tools ,env=GITHUB_API_TOKEN \
+# Activate system tools
 RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN \
-    mise use -g ${MISE_SYSTEM_TOOLS} python@3.14
+    mise use -g ${MISE_SYSTEM_TOOLS}
 
 # GitHub token login
 RUN --mount=type=secret,id=github_api_token,uid=1000 \
     [ -f /run/secrets/github_api_token ] && \
-      ${MISE_INSTALL_PATH} x -- gh auth login --with-token </run/secrets/github_api_token
+      mise x -- gh auth login --with-token </run/secrets/github_api_token
+
+# Install python and uv tools
+ARG PYTHON_VERSION=3.14
+RUN mise x -- uv python install --default ${PYTHON_VERSION} && \
+    mise x -- uv tool install ruff && \
+    mise x -- uv tool install ty
 
 # Use a common AGENTS.md in the direct parent of `workspace`
 COPY --chmod=644 docker/AGENTS.md /home/
