@@ -7,15 +7,15 @@
 [![Tooling](https://img.shields.io/badge/tools-mise-orange)](https://mise.jdx.dev)
 [![Tooling](https://img.shields.io/badge/tools-uv-orange)](https://docs.astral.sh/uv/)
 
-Containerized CLI workspace for AI coding agents (Copilot CLI) with
+Containerized CLI workspace for AI coding agents (Copilot CLI, Codex CLI) with
 common developer tools.
 
 ## 📁 Project Structure
 
 - `Dockerfile`: Main image based on `debian:trixie-slim`; installs development
   and build tools, then uses `mise` to manage agent utilities (`bat`, `eza`,
-  `fd`, `gh`, `jq`, `rg`, `uv`), Docker CLI, Compose plugin, and Copilot CLI;
-  installs Python, `ruff`, and `ty` via `uv`.
+  `fd`, `gh`, `jq`, `rg`, `uv`), Docker CLI, Compose plugin, Copilot and Codex
+  CLI; installs Python, `ruff`, and `ty` via `uv`.
 - `docker/entrypoint.sh`: Startup script that runs as root, adjusts the
   container user to match `CAPSULE_UID`/`CAPSULE_GID`, adds it to the Docker
   socket group, and drops privileges via `setpriv`.
