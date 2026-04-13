@@ -140,7 +140,7 @@ run_capsule() {
   local log_file="$2"
   local cfg_file="${TEST_TMPDIR}/config"
   shift 2
-  echo "${CAPSULE_WORKDIR:-${CC_WORKDIR:-${PWD}}}" >"${cfg_file}"
+  echo "${CAPSULE_WORKDIR:-${CC_WORKDIR:-$(pwd -P)}}" >"${cfg_file}"
   PATH="$mock_bin:$PATH" MOCK_LOG="$log_file" CAPSULE_CONFIG="$cfg_file" \
       "$SCRIPT_PATH" "$@"
 }

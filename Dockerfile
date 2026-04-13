@@ -64,8 +64,9 @@ RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN,required=false 
 
 # GitHub token login
 RUN --mount=type=secret,id=github_api_token,uid=1000,required=false \
-    [ -f /run/secrets/github_api_token ] && \
-      mise x -- gh auth login --with-token </run/secrets/github_api_token
+    if [ -f /run/secrets/github_api_token ]; then \
+        mise x -- gh auth login --with-token </run/secrets/github_api_token; \
+    fi
 
 # Install python and uv tools
 ARG PYTHON_VERSION=3.14
