@@ -1,5 +1,6 @@
 # 💊 Casual Capsule
 
+[![ci](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Base image](https://img.shields.io/badge/base-debian%3Atrixie--slim-informational?logo=debian)](Dockerfile)
 [![Shell](https://img.shields.io/badge/shell-bash-green?logo=gnu-bash)](capsule.sh)

@@ -112,6 +112,7 @@ test_example_project_end_to_end() {
   check_cmd="bash ./check-env.sh && grep -Fxq '$token' e2e-token.txt"
 
   log_message "Running capsule.sh --build for the example project"
+  # shellcheck disable=SC2016
   if run_logged bash -c '
     unset CAPSULE_WORKDIR
     cd "$1" &&

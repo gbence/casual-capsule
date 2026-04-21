@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run all test suites
+        env:
+          CAPSULE_HOST_WORKDIR: ${{ github.workspace }}
+        run: bash tests/test_all.sh
+
+  compose-build:
+    name: compose-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build image via Docker Compose
+        run: docker compose -f compose.yml build cli
