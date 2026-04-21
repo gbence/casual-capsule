@@ -1,3 +1,5 @@
+name: casual-capsule
+
 services:
   cli:
     build:
@@ -5,17 +7,25 @@ services:
       args:
         CAPSULE_UID: "${CAPSULE_UID:-1000}"
         CAPSULE_GID: "${CAPSULE_GID:-100}"
-    working_dir: /home/workspace
+      secrets:
+        - github_api_token
+    volumes:
+      - ${CAPSULE_HOST_WORKDIR:-${CAPSULE_WORKDIR:-${PWD}}}:/home/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+      - home:/home/user
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - DOCKER_GID=${DOCKER_GID:-999}
       - CAPSULE_UID=${CAPSULE_UID:-}
       - CAPSULE_GID=${CAPSULE_GID:-}
+      - CAPSULE_HOST_WORKDIR=${CAPSULE_HOST_WORKDIR:-}
+    working_dir: /home/workspace
     restart: "no"
-    volumes:
-      - ${CAPSULE_WORKDIR:-${CC_WORKDIR:-${PWD}}}:/home/workspace
-      - /var/run/docker.sock:/var/run/docker.sock
-      - home:/home/user
+    hostname: capsule
 
 volumes:
   home:
+
+secrets:
+  github_api_token:
+    environment: GITHUB_API_TOKEN

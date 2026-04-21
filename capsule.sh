@@ -1,9 +1,66 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
-export CAPSULE_WORKDIR="${CAPSULE_WORKDIR:-${CC_WORKDIR:-$(pwd -P)}}"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)"
+
+# This block sets two variables:
+#
+# *   CAPSULE_WORKDIR is the path of the working directory (project directory)
+#     as seen by the process running this script. This script's job is to start
+#     a container and to map CAPSULE_WORKDIR to /home/workspace inside that
+#     container. This happens in compose.yml.
+#
+# *   CAPSULE_HOST_WORKDIR is a bit more complicated:
+#
+#     -   When this script starts:
+#
+#         *   If capsule.sh is running on the host machine,
+#             CAPSULE_HOST_WORKDIR is not set.
+#
+#         *   If capsule.sh is running inside a capsule (that is, a container
+#             started by another execution of capsule.sh),
+#             CAPSULE_HOST_WORKDIR is the directory on the host that is mapped
+#             to /home/workspace inside the container.
+#
+#     -   After the if construct below:
+#
+#         *   CAPSULE_HOST_WORKDIR will point to the same directory as
+#             CAPSULE_WORKDIR, but on the host machine (where the Docker daemon
+#             is running).
+#
+# To sum up: the following values all point to the same working directory, but
+# in different systems:
+#
+# *   CAPSULE_HOST_WORKDIR (after the if construct below): The working
+#     directory's path on the host machine.
+#
+# *   CAPSULE_WORKDIR: The working directory's path on the machine where this
+#     capsule.sh is running. This might be on the host machine or in a
+#     capsule container. If it's in a container, it will be either
+#     /home/workspace or /home/workspace/[...].
+#
+# *   /home/workspace: The working directory's path in the container started by
+#     capsule.sh.
+export CAPSULE_WORKDIR="${CAPSULE_WORKDIR:-$(pwd -P)}"
+CAPSULE_CONTAINER_WORKDIR="/home/workspace"
 _CAPSULE_ID_WARN=0
+
+if [[ -z "${CAPSULE_HOST_WORKDIR:-}" ]]; then
+  export CAPSULE_HOST_WORKDIR="$CAPSULE_WORKDIR"
+elif [[ "$CAPSULE_WORKDIR" == "$CAPSULE_CONTAINER_WORKDIR" ]]; then
+  export CAPSULE_HOST_WORKDIR
+elif [[ "$CAPSULE_WORKDIR" == "$CAPSULE_CONTAINER_WORKDIR"/* ]]; then
+  CAPSULE_HOST_WORKDIR="$(
+    printf '%s%s' \
+      "$CAPSULE_HOST_WORKDIR" \
+      "${CAPSULE_WORKDIR#"$CAPSULE_CONTAINER_WORKDIR"}"
+  )"
+  export CAPSULE_HOST_WORKDIR
+else
+  # A non-Capsule path inside a container is not host-mountable via DOOD.
+  # Fall back to the local path and let Docker surface any mount error.
+  export CAPSULE_HOST_WORKDIR="$CAPSULE_WORKDIR"
+fi
 
 # Resolve container UID: env > host id > default 1000.
 if [[ -n "${CAPSULE_UID:-}" ]]; then
@@ -73,10 +130,32 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Require explicit approval before mounting a host path into the container.
+CAPSULE_CONFIG=${CAPSULE_CONFIG:-"${HOME}/.config/capsule"}
+mkdir -p "$(dirname "${CAPSULE_CONFIG}")"
+if ! grep -Fxqs "${CAPSULE_WORKDIR}" "${CAPSULE_CONFIG}"; then
+    if [[ ! -t 0 ]]; then
+        printf 'capsule: error: %s not in allowlist; ' \
+            "${CAPSULE_WORKDIR}" >&2
+        printf 'pre-approve in %s\n' "${CAPSULE_CONFIG}" >&2
+        exit 1
+    fi
+    read -rs -n 1 -p "Allow capsule to run in ${CAPSULE_WORKDIR} (y/N)? " key
+    if [[ $key == 'y' || $key == 'Y' ]]; then
+        printf 'y\n' >&2
+        printf '%s\n' "${CAPSULE_WORKDIR}" >>"${CAPSULE_CONFIG}"
+    else
+        printf 'n\n' >&2
+        exit 1
+    fi
+fi
+
 if [[ -z "${DOCKER_GID:-}" ]]; then
   DOCKER_SOCK_PATH=""
   DOCKER_HOST_SOCK_PATH=""
 
+  # Prefer the active Docker socket so the container user can access the
+  # daemon through the mounted socket without running as root.
   if [[ -n "${DOCKER_HOST:-}" ]] && [[ "${DOCKER_HOST}" == unix://* ]]; then
     DOCKER_HOST_SOCK_PATH="${DOCKER_HOST#unix://}"
     if [[ -e "${DOCKER_HOST_SOCK_PATH}" ]]; then
@@ -104,9 +183,7 @@ if [[ -z "${DOCKER_GID:-}" ]]; then
     )"; then
       export DOCKER_GID="${DOCKER_GID_VALUE}"
     else
-      if DOCKER_GID_VALUE="$(
-        ls -ln "${DOCKER_SOCK_PATH}" 2>/dev/null | awk '{print $4}'
-      )"; then
+      if DOCKER_GID_VALUE="$(stat -c '%g' "${DOCKER_SOCK_PATH}")"; then
         if [[ -n "${DOCKER_GID_VALUE}" ]]; then
           export DOCKER_GID="${DOCKER_GID_VALUE}"
         fi
@@ -114,6 +191,8 @@ if [[ -z "${DOCKER_GID:-}" ]]; then
     fi
   fi
 
+  # macOS Docker Desktop exposes a socket owned by staff, but the in-container
+  # socket group that works for access is conventionally 991.
   if [[ "$(uname -s)" == "Darwin" ]] && [[ "${DOCKER_GID:-}" == "20" ]]; then
     export DOCKER_GID="991"
   fi
@@ -134,7 +213,17 @@ COMPOSE_CMD=(
 )
 
 if [[ "$BUILD_BEFORE_RUN" -eq 1 ]]; then
-  "${COMPOSE_CMD[@]}" build cli
+    if ! MISE_VERSION="$(curl -fsSL https://mise.jdx.dev/VERSION)"; then
+        printf '%s\n' \
+            'capsule: error: failed to fetch MISE_VERSION' >&2
+        exit 1
+    fi
+    if [[ -z "$MISE_VERSION" ]]; then
+        printf '%s\n' \
+            'capsule: error: fetched empty MISE_VERSION' >&2
+        exit 1
+    fi
+    "${COMPOSE_CMD[@]}" build --build-arg "MISE_VERSION=${MISE_VERSION}" cli
 fi
 
 if [[ "${#RUNTIME_ARGS[@]}" -gt 0 ]]; then

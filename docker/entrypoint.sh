@@ -7,9 +7,8 @@ set -euo pipefail
 # When running as root (the default), this script:
 #   1. Adjusts the "user" account to match CAPSULE_UID/CAPSULE_GID.
 #   2. Adds "user" to the DOCKER_GID group for socket access.
-#   3. Fixes ownership of /mise and /home/user when the UID/GID
-#      changed OR a named volume has stale ownership from a
-#      previous image build.
+#   3. Fixes ownership of /home/user when the UID/GID changed OR
+#      a named volume has stale ownership from a previous image build.
 #   4. Sets HOME, USER, and LOGNAME (setpriv does not update
 #      environment variables, so they would otherwise stay as
 #      root's values from the Dockerfile USER directive).
@@ -63,7 +62,6 @@ OWNER_UID="$(stat -c '%u' "$TARGET_HOME" 2>/dev/null || true)"
 if [ "$CHANGED" = "1" ] || \
    [ "${OWNER_UID:-}" != "$(id -u user)" ]; then
   printf 'capsule: adjusting file ownership...\n' >&2
-  chown -Rh user: /mise 2>/dev/null || true
   chown -Rh user: "$TARGET_HOME" 2>/dev/null || true
 fi
 
