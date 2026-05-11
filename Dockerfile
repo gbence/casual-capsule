@@ -57,8 +57,12 @@ COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/
 # Switch user
 USER user
 
+# Activate system tools
+RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN,required=false \
+    mise use --global ${MISE_SYSTEM_TOOLS}
+
 # GitHub token login
-RUN --mount=type=secret,id=github_api_token,uid=${CAPSULE_UID},required=false \
+RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN,required=false \
     if [ -s /run/secrets/github_api_token ]; then \
         mise x -- gh auth login --with-token </run/secrets/github_api_token; \
     fi

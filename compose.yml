@@ -9,6 +9,8 @@ services:
         CAPSULE_GID: "${CAPSULE_GID:-100}"
       secrets:
         - github_api_token
+    secrets:
+      - github_api_token
     volumes:
       - ${CAPSULE_HOST_WORKDIR:-${CAPSULE_WORKDIR:-${PWD}}}:/home/workspace
       - /var/run/docker.sock:/var/run/docker.sock

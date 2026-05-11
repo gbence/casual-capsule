@@ -73,6 +73,17 @@ export HOME="${USER_HOME:-/home/user}"
 export USER=user
 export LOGNAME=user
 
+# Refresh GitHub credentials when a runtime secret is present.
+_GH_SECRET=/run/secrets/github_api_token
+if [ -s "$_GH_SECRET" ]; then
+    setpriv \
+        --reuid="$(id -u user)" \
+        --regid="$(id -g user)" \
+        --init-groups \
+        -- gh auth login --with-token < "$_GH_SECRET" \
+        || printf 'capsule: warning: gh auth login failed\n' >&2
+fi
+
 exec setpriv \
   --reuid="$(id -u user)" \
   --regid="$(id -g user)" \
