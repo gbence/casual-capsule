@@ -26,6 +26,15 @@ COPY --chmod=700 docker/setup-docker.sh /tmp
 RUN --mount=type=cache,id=apt-global,sharing=locked,target=/var/cache/apt \
     /tmp/setup-docker.sh
 
+# setup Claude Code source and install package
+ARG CLAUDE_CODE_CHANNEL=stable
+ARG CLAUDE_CODE_VERSION=""
+COPY --chmod=700 docker/setup-claude.sh /tmp
+RUN --mount=type=cache,id=apt-global,sharing=locked,target=/var/cache/apt \
+    CLAUDE_CODE_CHANNEL="${CLAUDE_CODE_CHANNEL}" \
+    CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION}" \
+    /tmp/setup-claude.sh
+
 # Add user (reuse existing group when GID already exists)
 ARG CAPSULE_UID=1000
 ARG CAPSULE_GID=100

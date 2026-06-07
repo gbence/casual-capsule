@@ -8,8 +8,8 @@
 [![Tooling](https://img.shields.io/badge/tools-mise-orange)](https://mise.en.dev)
 [![Tooling](https://img.shields.io/badge/tools-uv-orange)](https://docs.astral.sh/uv/)
 
-Containerized CLI workspace for AI coding agents (Copilot CLI, Codex CLI) with
-common developer tools.
+Containerized CLI workspace for AI coding agents (Claude Code, Copilot CLI,
+Codex CLI) with common developer tools.
 
 ## Table of contents
 
@@ -21,6 +21,7 @@ common developer tools.
   - [Phase 4: Verify GitHub auth](#phase-4-verify-github-auth)
   - [Phase 5: Verify Copilot (optional)](#phase-5-verify-copilot-optional)
   - [Phase 6: Verify Codex (optional)](#phase-6-verify-codex-optional)
+  - [Phase 7: Verify Claude Code](#phase-7-verify-claude-code-optional)
 - [Usage](#-usage)
 - [Capsule command examples](#%EF%B8%8F-capsule-command-examples)
 - [Additional features](#-additional-features)
@@ -42,15 +43,15 @@ common developer tools.
 ## 📋 Prerequisites
 
 - Docker Engine 24+ and Docker Compose v2
-- Access to GitHub Copilot or Codex.
+- Access to GitHub Copilot, Codex, or Claude Code.
 
 ## 🚀 Initial setup
 
 There is no true quick start for the first run. Capsule persists GitHub auth
 state in the home volume, so it is worth doing setup in this order: prepare the
 token first, then start Capsule, then verify the workspace and `gh` auth before
-opening Copilot or Codex. These checkpoints make later troubleshooting much
-easier.
+opening Copilot, Codex, or Claude Code. These checkpoints make later
+troubleshooting much easier.
 
 | Phase | What it proves |
 | --- | --- |
@@ -58,11 +59,12 @@ easier.
 | Start Capsule | The image builds and the container starts successfully. |
 | Verify the container | The workspace mount and persistent home volume work. |
 | Verify GitHub auth | `gh` is already logged in before agent startup. |
-| Verify your agent | Copilot or Codex can read the workspace. |
+| Verify your agent | Copilot, Codex, or Claude Code can read the workspace. |
 
 ### Phase 1: Prepare credentials
 
-1.  Decide if you want to use GitHub Copilot, Codex, or both.
+1.  Decide if you want to use GitHub Copilot, Codex, Claude Code, or a
+    combination.
 
 2.  Generate a GitHub access token.
 
@@ -290,13 +292,32 @@ easier.
     • Your favorite color is purple.
     ```
 
+### Phase 7: Verify Claude Code (optional)
+
+1.  Start Claude Code:
+
+    ```
+    $ claude
+    ```
+
+2.  Follow the login prompts. Claude Code requires a Claude Pro, Max, Team,
+    Enterprise, Console, or supported cloud provider account.
+
+3.  Test the connection and that Claude Code can read `AGENTS.md`:
+
+    ```
+    > What is my favorite color?
+    Your favorite color is purple.
+    ```
+
 ## 💡 Usage
 
 Once you set up Capsule, you can start it in any project directory. You can even
-start Copilot or Codex directly:
+start Claude Code, Copilot, or Codex directly:
 
 ```
 $ cd /home/myuser/myproject
+$ capsule claude
 $ capsule copilot
 $ capsule codex
 ```
@@ -306,6 +327,7 @@ $ capsule codex
 Pass a command instead of the default shell:
 
 ```bash
+capsule claude
 capsule copilot
 capsule bash -lc "node -v && python --version"
 capsule docker ps
@@ -315,6 +337,7 @@ Build the image before starting:
 
 ```bash
 capsule --build
+capsule -b claude
 capsule -b copilot
 ```
 
@@ -584,6 +607,15 @@ Options:
 
 *   `GITHUB_API_TOKEN`: Passed as a build secret for `gh` auth and Copilot CLI.
 
+*   `CLAUDE_CODE_CHANNEL`: Claude Code apt channel used during image build.
+
+    Default: `stable`. Set to `latest` to use the rolling channel.
+
+*   `CLAUDE_CODE_VERSION`: Optional exact `claude-code` package version used
+    during image build.
+
+    Default: empty. When empty, apt installs the channel's current package.
+
 ## 🧪 Run checks and tests
 
 Run lint checks on the host:
@@ -622,8 +654,13 @@ When one of these tools is missing, it prints a warning and skips that linter.
 
 ## 🤖 Included agent tooling
 
-The image includes utilities commonly used by coding agents, installed via
-`mise` (configured in the `MISE_SYSTEM_TOOLS` Dockerfile ARG):
+The image includes agent CLIs and utilities commonly used by coding agents.
+
+Installed via the Claude Code apt repository:
+
+- `claude`: Claude Code CLI.
+
+Installed via `mise` (configured in the `MISE_SYSTEM_TOOLS` Dockerfile ARG):
 
 - `bat`: Syntax-highlighted file viewing.
 - `eza`: Enhanced directory listing.
@@ -651,7 +688,7 @@ Verify inside capsule:
 ```bash
 capsule bash -lc "rg --version && fd --version && jq --version && \
   bat --version && eza --version && shellcheck --version && \
-  gh --version && tree --version && python --version"
+  gh --version && claude --version && tree --version && python --version"
 ```
 
 ## 🔐 Security Note

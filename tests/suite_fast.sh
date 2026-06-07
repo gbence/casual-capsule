@@ -16,6 +16,7 @@ SCRIPT_PATH="$ROOT_DIR/capsule.sh"
 COMPOSE_PATH="$ROOT_DIR/compose.yml"
 DOCKERFILE_PATH="$ROOT_DIR/Dockerfile"
 ENTRYPOINT_PATH="$ROOT_DIR/docker/entrypoint.sh"
+CLAUDE_SETUP_PATH="$ROOT_DIR/docker/setup-claude.sh"
 EXAMPLE_PROJECT_DIR="$ROOT_DIR/tests/fixtures/example-project"
 
 unset CAPSULE_CUSTOM_COMPOSE
@@ -227,6 +228,12 @@ test_compose_contract() {
     'CAPSULE_GID:-100' \
     "compose uses CAPSULE_GID build-arg default"
   assert_file_contains "$COMPOSE_PATH" \
+    'CLAUDE_CODE_CHANNEL: "${CLAUDE_CODE_CHANNEL:-stable}"' \
+    "compose passes Claude Code channel build arg"
+  assert_file_contains "$COMPOSE_PATH" \
+    'CLAUDE_CODE_VERSION: "${CLAUDE_CODE_VERSION:-}"' \
+    "compose passes Claude Code version build arg"
+  assert_file_contains "$COMPOSE_PATH" \
     'CAPSULE_UID=${CAPSULE_UID:-}' \
     "compose passes CAPSULE_UID to container environment"
   assert_file_contains "$COMPOSE_PATH" \
@@ -260,6 +267,15 @@ test_dockerfile_tooling_contract() {
   assert_file_contains "$DOCKERFILE_PATH" 'https://mise.run' \
     "image installs mise"
   assert_file_contains "$DOCKERFILE_PATH" \
+    'ARG CLAUDE_CODE_CHANNEL=stable' \
+    "image uses Claude Code stable apt channel by default"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'ARG CLAUDE_CODE_VERSION=""' \
+    "image allows Claude Code version pinning"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'COPY --chmod=700 docker/setup-claude.sh /tmp' \
+    "image copies Claude Code apt setup script"
+  assert_file_contains "$DOCKERFILE_PATH" \
     "mise install --system \${MISE_SYSTEM_TOOLS} &&" \
     "image installs system tools with mise"
   assert_file_contains "$DOCKERFILE_PATH" \
@@ -268,6 +284,29 @@ test_dockerfile_tooling_contract() {
   assert_file_not_contains "$DOCKERFILE_PATH" \
     "mise use --global \${MISE_SYSTEM_TOOLS}" \
     "image no longer activates system tools in the user home"
+}
+
+test_claude_setup_contract() {
+  if ! bash -n "$CLAUDE_SETUP_PATH"; then
+    fail "setup-claude.sh has valid shell syntax"
+  else
+    pass "setup-claude.sh has valid shell syntax"
+  fi
+  assert_file_contains "$CLAUDE_SETUP_PATH" \
+    'https://downloads.claude.ai/keys/claude-code.asc' \
+    "Claude Code setup downloads the official apt signing key"
+  assert_file_contains "$CLAUDE_SETUP_PATH" \
+    '31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE' \
+    "Claude Code setup verifies the documented signing key"
+  assert_file_contains "$CLAUDE_SETUP_PATH" \
+    "https://downloads.claude.ai/claude-code/apt/\${CLAUDE_CODE_CHANNEL}" \
+    "Claude Code setup configures the selected apt channel"
+  assert_file_contains "$CLAUDE_SETUP_PATH" \
+    "\"claude-code=\${CLAUDE_CODE_VERSION}\"" \
+    "Claude Code setup supports an explicit package version"
+  assert_file_contains "$CLAUDE_SETUP_PATH" \
+    'apt-get -y --no-install-recommends install claude-code' \
+    "Claude Code setup installs Claude Code from apt"
 }
 
 test_dockerfile_uid_gid_contract() {
@@ -1495,6 +1534,7 @@ main() {
 
   test_compose_contract
   test_dockerfile_tooling_contract
+  test_claude_setup_contract
   test_dockerfile_uid_gid_contract
   test_entrypoint_contract
   test_build_flag_runs_build_then_runtime
