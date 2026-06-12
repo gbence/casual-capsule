@@ -607,15 +607,6 @@ Options:
 
 *   `GITHUB_API_TOKEN`: Passed as a build secret for `gh` auth and Copilot CLI.
 
-*   `CLAUDE_CODE_CHANNEL`: Claude Code apt channel used during image build.
-
-    Default: `stable`. Set to `latest` to use the rolling channel.
-
-*   `CLAUDE_CODE_VERSION`: Optional exact `claude-code` package version used
-    during image build.
-
-    Default: empty. When empty, apt installs the channel's current package.
-
 ## 🧪 Run checks and tests
 
 Run lint checks on the host:
@@ -656,12 +647,9 @@ When one of these tools is missing, it prints a warning and skips that linter.
 
 The image includes agent CLIs and utilities commonly used by coding agents.
 
-Installed via the Claude Code apt repository:
-
-- `claude`: Claude Code CLI.
-
 Installed via `mise` (configured in the `MISE_SYSTEM_TOOLS` Dockerfile ARG):
 
+- `claude`: Claude Code CLI.
 - `bat`: Syntax-highlighted file viewing.
 - `eza`: Enhanced directory listing.
 - `fd`: Fast file discovery.

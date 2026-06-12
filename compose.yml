@@ -7,8 +7,6 @@ services:
       args:
         CAPSULE_UID: "${CAPSULE_UID:-1000}"
         CAPSULE_GID: "${CAPSULE_GID:-100}"
-        CLAUDE_CODE_CHANNEL: "${CLAUDE_CODE_CHANNEL:-stable}"
-        CLAUDE_CODE_VERSION: "${CLAUDE_CODE_VERSION:-}"
       secrets:
         - github_api_token
     volumes:
