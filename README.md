@@ -29,6 +29,7 @@ common developer tools.
   - [Private home bind mount](#private-home-bind-mount)
   - [Custom Capsule images](#custom-capsule-images)
   - [Updating your GitHub token](#updating-your-github-token)
+  - [Graphify knowledge graph](#graphify-knowledge-graph)
   - [Port publishing](#port-publishing)
   - [Runtime volume mounts](#runtime-volume-mounts)
   - [Bind mounts in containers started in a Capsule](#bind-mounts-in-containers-started-in-a-capsule)
@@ -456,6 +457,42 @@ your token:
 The updated credentials are written to the persistent home volume and
 survive subsequent restarts.  No rebuild is required.
 
+### Graphify knowledge graph
+
+The image ships [graphify](https://github.com/Graphify-Labs/graphify), a
+local, deterministic knowledge-graph tool for coding agents. It parses a
+codebase with tree-sitter and answers structural questions through a
+`/graphify` skill.
+
+On every container start the entrypoint installs that skill into the home
+volume for Claude Code, Codex, and Antigravity. The step is version-stamped,
+so it runs only on the first start and after a graphify upgrade, and it never
+blocks startup. Set `CAPSULE_SKIP_SKILL_SYNC=1` to disable it.
+
+Inside your agent, point it at a directory:
+
+```text
+/graphify .
+```
+
+The `graphify` CLI is also available directly:
+
+```bash
+capsule bash -lc "graphify . && graphify query 'where is X handled?'"
+```
+
+Source-code extraction is fully local. Non-code inputs (Markdown, PDFs,
+images) need an LLM backend; without an API key, graphify stops and asks for
+one. Pass `--code-only` to index just the code, with no key and no network:
+
+```bash
+capsule bash -lc "graphify . --code-only && graphify cluster-only ."
+```
+
+Output lands in `graphify-out/` (git-ignored). Use `.graphifyignore`
+(gitignore syntax) to exclude extra paths; `.gitignore` is honored
+automatically.
+
 ### Port publishing
 
 Use `--publish` to expose a port from the Capsule container on the Docker
@@ -620,6 +657,11 @@ Options:
 
     Default: empty.
 
+*   `CAPSULE_SKIP_SKILL_SYNC`: Skip the graphify `/graphify` skill install run
+    by the entrypoint at container start.
+
+    Default: empty. Set to `1` to disable the skill sync.
+
 *   `CAPSULE_CONFIG`: Path to the file that contains the approved directories.
 
     Default: `~/.config/capsule`.
@@ -681,6 +723,7 @@ MISE_SYSTEM_TOOLS="bat fd jq ripgrep uv" docker compose build cli
 
 - `claude`: Claude Code agent CLI.
 - `codex`: Codex agent CLI.
+- `graphify`: Local knowledge-graph builder and `/graphify` agent skill.
 - `bat`: Syntax-highlighted file viewing.
 - `eza`: Enhanced directory listing.
 - `fd`: Fast file discovery.
@@ -707,7 +750,8 @@ Verify inside capsule:
 ```bash
 capsule bash -lc "rg --version && fd --version && jq --version && \
   bat --version && eza --version && shellcheck --version && \
-  gh --version && tree --version && python --version"
+  gh --version && tree --version && graphify --version && \
+  python --version"
 ```
 
 ## 🔐 Security Note

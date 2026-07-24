@@ -3,3 +3,6 @@
 /.copilot.txt
 /.claude.txt
 /_build/
+
+# graphify knowledge-graph output
+/graphify-out/

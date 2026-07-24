@@ -17,6 +17,7 @@ CHECK_ALL_PATH="$ROOT_DIR/tests/check_all.sh"
 COMPOSE_PATH="$ROOT_DIR/compose.yml"
 DOCKERFILE_PATH="$ROOT_DIR/Dockerfile"
 ENTRYPOINT_PATH="$ROOT_DIR/docker/entrypoint.sh"
+SYNC_SKILLS_PATH="$ROOT_DIR/docker/sync-skills.sh"
 EXAMPLE_PROJECT_DIR="$ROOT_DIR/tests/fixtures/example-project"
 
 unset CAPSULE_CUSTOM_COMPOSE
@@ -258,6 +259,9 @@ test_compose_contract() {
   assert_file_contains "$COMPOSE_PATH" \
     '- MISE_SYSTEM_TOOLS' \
     "compose passes MISE_SYSTEM_TOOLS from the build environment"
+  assert_file_contains "$COMPOSE_PATH" \
+    'CAPSULE_SKIP_SKILL_SYNC=${CAPSULE_SKIP_SKILL_SYNC:-}' \
+    "compose passes the skill-sync toggle to the container"
 }
 
 test_dockerfile_tooling_contract() {
@@ -280,6 +284,21 @@ test_dockerfile_tooling_contract() {
   assert_file_not_contains "$DOCKERFILE_PATH" \
     "mise use --global \${MISE_SYSTEM_TOOLS}" \
     "image no longer activates system tools in the user home"
+  assert_file_contains "$DOCKERFILE_PATH" 'pipx:graphifyy' \
+    "image installs graphify via the mise pipx backend"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python' \
+    "image redirects uv's Python dir so graphify is user-readable"
+  assert_file_contains "$DOCKERFILE_PATH" 'MISE_PIPX_UVX=1' \
+    "image forces the pipx backend to use uvx, not the absent pipx"
+  assert_file_contains "$DOCKERFILE_PATH" 'UV_LINK_MODE=copy' \
+    "image uses copy link mode so uv installs work without reflink"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'mise x node uv -- mise install --system' \
+    "image activates uv before the parallel install reaches graphify"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/' \
+    "image copies the graphify skill sync helper"
 }
 
 test_dockerfile_uid_gid_contract() {
@@ -346,6 +365,30 @@ test_entrypoint_contract() {
   assert_file_contains "$ENTRYPOINT_PATH" \
     'auth login --with-token' \
     "entrypoint refreshes gh credentials from runtime secret"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    '/usr/local/bin/sync-skills.sh' \
+    "entrypoint runs the graphify skill sync helper"
+}
+
+# shellcheck disable=SC2016
+test_sync_skills_contract() {
+  if ! bash -n "$SYNC_SKILLS_PATH"; then
+    fail "sync-skills.sh has valid shell syntax"
+  else
+    pass "sync-skills.sh has valid shell syntax"
+  fi
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'CAPSULE_SKIP_SKILL_SYNC' \
+    "sync-skills honors the skip toggle"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'command -v graphify' \
+    "sync-skills no-ops when graphify is absent"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'graphify install --platform' \
+    "sync-skills installs the skill for each agent platform"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'graphify-skills' \
+    "sync-skills stamps the synced version to skip later starts"
 }
 
 test_build_flag_runs_build_then_runtime() {
@@ -1609,6 +1652,7 @@ main() {
   test_dockerfile_tooling_contract
   test_dockerfile_uid_gid_contract
   test_entrypoint_contract
+  test_sync_skills_contract
   test_build_flag_runs_build_then_runtime
   test_no_cache_flag_applies_to_build_only
   test_double_dash_keeps_runtime_flags

@@ -1,0 +1,5 @@
+# Extra excludes for `graphify` (gitignore syntax), on top of .gitignore.
+# Keep the knowledge graph focused on the shipped capsule sources.
+_build/
+tests/fixtures/
+.claude/

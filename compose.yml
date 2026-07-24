@@ -23,6 +23,7 @@ services:
       - CAPSULE_GID=${CAPSULE_GID:-}
       - CAPSULE_HOME_HOST_DIR=${CAPSULE_HOME_HOST_DIR:-}
       - CAPSULE_HOST_WORKDIR=${CAPSULE_HOST_WORKDIR:-}
+      - CAPSULE_SKIP_SKILL_SYNC=${CAPSULE_SKIP_SKILL_SYNC:-}
     working_dir: /home/workspace
     restart: "no"
     hostname: capsule

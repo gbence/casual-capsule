@@ -95,6 +95,19 @@ if [ -s "$_GH_SECRET" ]; then
         || printf 'capsule: warning: gh auth login failed\n' >&2
 fi
 
+# Sync the graphify /graphify skill into the home volume as `user`. HOME/USER
+# are already exported above, so the install lands in the persistent volume
+# rather than root's home. Best-effort: the script exits 0 on every failure and
+# this call is guarded, so it can never block container start.
+if [ -x /usr/local/bin/sync-skills.sh ]; then
+  setpriv \
+    --reuid="$(id -u user)" \
+    --regid="$(id -g user)" \
+    --init-groups \
+    -- /usr/local/bin/sync-skills.sh \
+    || printf 'capsule: warning: graphify skill sync failed\n' >&2
+fi
+
 exec setpriv \
   --reuid="$(id -u user)" \
   --regid="$(id -g user)" \

@@ -45,9 +45,25 @@ RUN curl -fsSL https://mise.run | sh
 
 # Install system AI agents and tools with mise
 ARG MISE_SYSTEM_TOOLS="antigravity-cli bat codex claude eza fd \
-        gh jq node ripgrep usage uv rtk"
+        gh jq node ripgrep usage uv rtk pipx:graphifyy"
+# graphify installs through mise's pipx backend, which needs uv's `uvx`:
+#  - MISE_PIPX_UVX forces the uvx installer instead of `pipx`, which the image
+#    does not ship. `mise x node uv` also guarantees uv (and uvx) are installed
+#    up front, so the parallel `mise install` never reaches pipx:graphifyy
+#    before uv is ready (mise installs tools concurrently).
+#  - UV_PYTHON_INSTALL_DIR: uvx builds a venv whose interpreter is an absolute
+#    symlink into uv's Python dir. This RUN is root, so uv would default to
+#    /root/.local/share/uv (mode 700, and the image has no system python3),
+#    leaving graphify unreadable for the runtime `user`. Redirect it to a
+#    world-traversable system dir. Scoped to this RUN on purpose: the later
+#    `uv python install` runs as `user` and must keep uv's per-user dir.
+#  - UV_LINK_MODE=copy: uv defaults to reflink/clone from its cache into the
+#    install dir, which fails with EAGAIN on filesystems without copy-on-write
+#    (some overlay/ZFS build hosts). Plain copies keep the build portable.
 RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN,required=true \
-    mise x node -- mise install --system ${MISE_SYSTEM_TOOLS} && \
+    export UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python \
+      MISE_PIPX_UVX=1 UV_LINK_MODE=copy && \
+    mise x node uv -- mise install --system ${MISE_SYSTEM_TOOLS} && \
     mise use --path /etc/mise/config.toml --pin ${MISE_SYSTEM_TOOLS}
 
 # Expose system tools on PATH independently of mise's per-directory config
@@ -69,6 +85,9 @@ COPY --chmod=644 docker/mise.sh /etc/profile.d/
 
 # Copy entrypoint (owned by root for security)
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/
+
+# Copy the graphify skill sync helper (run as `user` by the entrypoint)
+COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/
 
 # Switch user
 USER user
