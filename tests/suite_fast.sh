@@ -284,18 +284,21 @@ test_dockerfile_tooling_contract() {
   assert_file_not_contains "$DOCKERFILE_PATH" \
     "mise use --global \${MISE_SYSTEM_TOOLS}" \
     "image no longer activates system tools in the user home"
-  assert_file_contains "$DOCKERFILE_PATH" 'pipx:graphifyy' \
-    "image installs graphify via the mise pipx backend"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'uv tool install "graphifyy==' \
+    "image installs graphify with uv, not the mise pipx backend"
+  assert_file_contains "$DOCKERFILE_PATH" 'ARG GRAPHIFY_VERSION=' \
+    "image pins the graphify version via a build ARG"
+  assert_file_contains "$DOCKERFILE_PATH" 'UV_TOOL_BIN_DIR=/usr/local/bin' \
+    "image places the graphify executables onto PATH"
   assert_file_contains "$DOCKERFILE_PATH" \
     'UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python' \
     "image redirects uv's Python dir so graphify is user-readable"
-  assert_file_contains "$DOCKERFILE_PATH" 'MISE_PIPX_UVX=1' \
-    "image forces the pipx backend to use uvx, not the absent pipx"
   assert_file_contains "$DOCKERFILE_PATH" 'UV_LINK_MODE=copy' \
     "image uses copy link mode so uv installs work without reflink"
   assert_file_contains "$DOCKERFILE_PATH" \
-    'mise x node uv -- mise install --system' \
-    "image activates uv before the parallel install reaches graphify"
+    '/usr/local/share/graphify-version' \
+    "image stamps the graphify version for the skill sync"
   assert_file_contains "$DOCKERFILE_PATH" \
     'COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/' \
     "image copies the graphify skill sync helper"
@@ -386,6 +389,9 @@ test_sync_skills_contract() {
   assert_file_contains "$SYNC_SKILLS_PATH" \
     'graphify install --platform' \
     "sync-skills installs the skill for each agent platform"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    '/usr/local/share/graphify-version' \
+    "sync-skills reads the build-stamped version file"
   assert_file_contains "$SYNC_SKILLS_PATH" \
     'graphify-skills' \
     "sync-skills stamps the synced version to skip later starts"

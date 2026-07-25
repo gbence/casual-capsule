@@ -723,7 +723,6 @@ MISE_SYSTEM_TOOLS="bat fd jq ripgrep uv" docker compose build cli
 
 - `claude`: Claude Code agent CLI.
 - `codex`: Codex agent CLI.
-- `graphify`: Local knowledge-graph builder and `/graphify` agent skill.
 - `bat`: Syntax-highlighted file viewing.
 - `eza`: Enhanced directory listing.
 - `fd`: Fast file discovery.
@@ -744,6 +743,8 @@ Python tooling (installed via `uv`; binaries available on `PATH` via
   `3.14`).
 - `ruff`: Fast Python linter and formatter.
 - `ty`: Python type checker.
+- `graphify`: Local knowledge-graph builder and `/graphify` agent skill
+  (version set by `GRAPHIFY_VERSION` ARG).
 
 Verify inside capsule:
 

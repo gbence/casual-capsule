@@ -45,26 +45,30 @@ RUN curl -fsSL https://mise.run | sh
 
 # Install system AI agents and tools with mise
 ARG MISE_SYSTEM_TOOLS="antigravity-cli bat codex claude eza fd \
-        gh jq node ripgrep usage uv rtk pipx:graphifyy"
-# graphify installs through mise's pipx backend, which needs uv's `uvx`:
-#  - MISE_PIPX_UVX forces the uvx installer instead of `pipx`, which the image
-#    does not ship. `mise x node uv` also guarantees uv (and uvx) are installed
-#    up front, so the parallel `mise install` never reaches pipx:graphifyy
-#    before uv is ready (mise installs tools concurrently).
-#  - UV_PYTHON_INSTALL_DIR: uvx builds a venv whose interpreter is an absolute
-#    symlink into uv's Python dir. This RUN is root, so uv would default to
-#    /root/.local/share/uv (mode 700, and the image has no system python3),
-#    leaving graphify unreadable for the runtime `user`. Redirect it to a
-#    world-traversable system dir. Scoped to this RUN on purpose: the later
-#    `uv python install` runs as `user` and must keep uv's per-user dir.
-#  - UV_LINK_MODE=copy: uv defaults to reflink/clone from its cache into the
-#    install dir, which fails with EAGAIN on filesystems without copy-on-write
-#    (some overlay/ZFS build hosts). Plain copies keep the build portable.
+        gh jq node ripgrep usage uv rtk"
 RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN,required=true \
-    export UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python \
-      MISE_PIPX_UVX=1 UV_LINK_MODE=copy && \
-    mise x node uv -- mise install --system ${MISE_SYSTEM_TOOLS} && \
+    mise x node -- mise install --system ${MISE_SYSTEM_TOOLS} && \
     mise use --path /etc/mise/config.toml --pin ${MISE_SYSTEM_TOOLS}
+
+# Install graphify (knowledge-graph CLI + /graphify skill) with uv directly.
+# We use `uv tool install`, not mise's pipx backend: that backend's choice
+# between uvx and pipx is unstable across mise releases and falls back to
+# `pipx` (absent from the image) under `mise install --system`, breaking the
+# build. uv installs the same wheels deterministically.
+#  - UV_TOOL_BIN_DIR puts the graphify* executables straight onto PATH.
+#  - UV_PYTHON_INSTALL_DIR keeps uv's interpreter world-readable: this RUN is
+#    root, and uv's default /root/.local/share/uv is mode 700 with no system
+#    python3, which would leave graphify unrunnable for the runtime `user`.
+#  - UV_LINK_MODE=copy avoids reflink, which EAGAINs on build filesystems
+#    without copy-on-write (some overlay/ZFS hosts).
+# The pinned version is stamped so docker/sync-skills.sh can detect upgrades.
+ARG GRAPHIFY_VERSION=0.9.25
+RUN UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python \
+    UV_TOOL_DIR=/usr/local/share/uv/tools \
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    UV_LINK_MODE=copy \
+    mise x uv -- uv tool install "graphifyy==${GRAPHIFY_VERSION}" && \
+    printf '%s\n' "${GRAPHIFY_VERSION}" >/usr/local/share/graphify-version
 
 # Expose system tools on PATH independently of mise's per-directory config
 # resolution. A project may set `ignored_config_paths` in its mise config to

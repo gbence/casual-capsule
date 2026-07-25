@@ -20,7 +20,7 @@
 
 set -u
 
-readonly MISE_CONFIG="/etc/mise/config.toml"
+readonly VERSION_FILE="/usr/local/share/graphify-version"
 readonly HOME_DIR="${HOME:-/home/user}"
 readonly STAMP_DIR="$HOME_DIR/.cache/capsule"
 readonly STAMP_FILE="$STAMP_DIR/graphify-skills"
@@ -36,12 +36,10 @@ if ! command -v graphify >/dev/null 2>&1; then
   exit 0
 fi
 
-# Current graphify version: read the version pinned in the system mise config
-# without spawning Python. Fall back to `graphify --version` if that is empty,
-# and to a sentinel if even that fails, so the stamp logic stays well-defined.
-current="$(sed -n \
-  's/^"pipx:graphifyy"[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
-  "$MISE_CONFIG" 2>/dev/null | head -n1)"
+# Current graphify version: read the build-stamped version file (no Python
+# spawn). Fall back to `graphify --version` if that is missing, and to a
+# sentinel if even that fails, so the stamp logic stays well-defined.
+current="$(cat "$VERSION_FILE" 2>/dev/null)"
 if [[ -z "$current" ]]; then
   current="$(graphify --version 2>/dev/null | awk '{print $NF}')"
 fi
