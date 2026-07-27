@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain Graphify"
+  short_description: "Keep project knowledge graphs current"
+  default_prompt: "Use $maintain-graphify to keep this project's graph current."

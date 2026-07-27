@@ -93,6 +93,10 @@ COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/
 # Copy the graphify skill sync helper (run as `user` by the entrypoint)
 COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/
 
+# Add Capsule's Graphify lifecycle skill beside the versioned vendor skill.
+COPY skills/maintain-graphify \
+  /usr/local/share/capsule-skills/maintain-graphify
+
 # Switch user
 USER user
 

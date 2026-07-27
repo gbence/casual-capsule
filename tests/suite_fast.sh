@@ -18,6 +18,7 @@ COMPOSE_PATH="$ROOT_DIR/compose.yml"
 DOCKERFILE_PATH="$ROOT_DIR/Dockerfile"
 ENTRYPOINT_PATH="$ROOT_DIR/docker/entrypoint.sh"
 SYNC_SKILLS_PATH="$ROOT_DIR/docker/sync-skills.sh"
+MAINTAIN_GRAPHIFY_SKILL_PATH="$ROOT_DIR/skills/maintain-graphify/SKILL.md"
 EXAMPLE_PROJECT_DIR="$ROOT_DIR/tests/fixtures/example-project"
 
 unset CAPSULE_CUSTOM_COMPOSE
@@ -302,6 +303,9 @@ test_dockerfile_tooling_contract() {
   assert_file_contains "$DOCKERFILE_PATH" \
     'COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/' \
     "image copies the graphify skill sync helper"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'skills/maintain-graphify' \
+    "image copies the Capsule Graphify lifecycle skill"
 }
 
 test_dockerfile_uid_gid_contract() {
@@ -395,6 +399,48 @@ test_sync_skills_contract() {
   assert_file_contains "$SYNC_SKILLS_PATH" \
     'graphify-skills' \
     "sync-skills stamps the synced version to skip later starts"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'capsule_skill_hash' \
+    "sync-skills invalidates the stamp when the Capsule skill changes"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    '.claude/skills' \
+    "sync-skills copies the Capsule skill for Claude"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    '.codex/skills' \
+    "sync-skills copies the Capsule skill for Codex"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    '.gemini/config/skills' \
+    "sync-skills copies the Capsule skill for Antigravity"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'cp -R "$CAPSULE_SKILL_DIR/." "$target/"' \
+    "sync-skills copies the Capsule-owned skill contents"
+}
+
+test_maintain_graphify_skill_contract() {
+  assert_file_contains "$MAINTAIN_GRAPHIFY_SKILL_PATH" \
+    'name: maintain-graphify' \
+    "Graphify lifecycle skill declares its stable name"
+  assert_file_not_contains "$MAINTAIN_GRAPHIFY_SKILL_PATH" \
+    'TODO' \
+    "Graphify lifecycle skill contains no template placeholders"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_SKILL_PATH" \
+    'graphify reflect --if-stale' \
+    "Graphify lifecycle skill refreshes learned outcomes"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_SKILL_PATH" \
+    'graphify update ROOT' \
+    "Graphify lifecycle skill updates existing code graphs"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_SKILL_PATH" \
+    'graphify update ROOT --force' \
+    "Graphify lifecycle skill handles confirmed graph shrinkage"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_SKILL_PATH" \
+    'graphify diagnose multigraph' \
+    "Graphify lifecycle skill runs graph health diagnostics"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_SKILL_PATH" \
+    'graphify-out/needs_update' \
+    "Graphify lifecycle skill records pending semantic refreshes"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_SKILL_PATH" \
+    'writes a merge-driver entry to `.gitattributes`' \
+    "Graphify lifecycle skill keeps hook changes explicit"
 }
 
 test_build_flag_runs_build_then_runtime() {
@@ -1659,6 +1705,7 @@ main() {
   test_dockerfile_uid_gid_contract
   test_entrypoint_contract
   test_sync_skills_contract
+  test_maintain_graphify_skill_contract
   test_build_flag_runs_build_then_runtime
   test_no_cache_flag_applies_to_build_only
   test_double_dash_keeps_runtime_flags

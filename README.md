@@ -460,16 +460,37 @@ survive subsequent restarts.  No rebuild is required.
 ### Graphify knowledge graph
 
 The image ships [graphify](https://github.com/Graphify-Labs/graphify), a
-local, deterministic knowledge-graph tool for coding agents. It parses a
-codebase with tree-sitter and answers structural questions through a
-`/graphify` skill.
+local knowledge-graph tool for coding agents. It parses code with tree-sitter
+and answers structural questions through its `/graphify` skill.
 
-On every container start the entrypoint installs that skill into the home
-volume for Claude Code, Codex, and Antigravity. The step is version-stamped,
-so it runs only on the first start and after a graphify upgrade, and it never
-blocks startup. Set `CAPSULE_SKIP_SKILL_SYNC=1` to disable it.
+On every container start the entrypoint makes two global skills available to
+Claude Code, Codex, and Antigravity:
 
-Inside your agent, point it at a directory:
+- Graphify's versioned vendor skill builds and queries knowledge graphs.
+- Capsule's `maintain-graphify` skill applies Graphify during development.
+
+The second skill automatically queries an existing graph before broad code
+inspection, bootstraps one for non-trivial architecture or multi-file work,
+updates structural code data after changes, requests semantic refreshes after
+documentation or configuration changes, and runs graph diagnostics.
+Intentional file and symbol deletions use a normal incremental update first.
+It uses `--force` only when a shrink refusal is fully explained by the current
+task's deletions and no extraction failure is present.
+
+Both skills live in the persistent home volume, so they are available when the
+same Capsule is opened on another project. The sync stamp includes both the
+Graphify version and Capsule skill contents, and startup never blocks on a
+sync failure. Set `CAPSULE_SKIP_SKILL_SYNC=1` to disable both skills.
+
+The lifecycle skill does not silently modify another project's `AGENTS.md`,
+`CLAUDE.md`, hooks, or `.gitattributes`. Project hook installation remains an
+explicit, reviewable operation because Graphify registers a merge driver:
+
+```bash
+graphify hook install
+```
+
+Inside an agent, point the vendor skill at a directory for an explicit build:
 
 ```text
 /graphify .
@@ -478,15 +499,18 @@ Inside your agent, point it at a directory:
 The `graphify` CLI is also available directly:
 
 ```bash
-capsule bash -lc "graphify . && graphify query 'where is X handled?'"
+capsule bash -lc \
+  "graphify extract . --code-only && \
+  graphify query 'where is X handled?'"
 ```
 
-Source-code extraction is fully local. Non-code inputs (Markdown, PDFs,
-images) need an LLM backend; without an API key, graphify stops and asks for
-one. Pass `--code-only` to index just the code, with no key and no network:
+Source-code extraction is fully local. The agent skill can semantically
+extract non-code inputs such as Markdown, YAML, PDFs, and images using the
+running agent. Unattended CLI extraction needs a configured LLM backend.
+Pass `--code-only` to index just code with no key and no network:
 
 ```bash
-capsule bash -lc "graphify . --code-only && graphify cluster-only ."
+capsule bash -lc "graphify extract . --code-only"
 ```
 
 Output lands in `graphify-out/` (git-ignored). Use `.graphifyignore`
@@ -657,8 +681,8 @@ Options:
 
     Default: empty.
 
-*   `CAPSULE_SKIP_SKILL_SYNC`: Skip the graphify `/graphify` skill install run
-    by the entrypoint at container start.
+*   `CAPSULE_SKIP_SKILL_SYNC`: Skip the Graphify vendor and Capsule lifecycle
+    skill sync run by the entrypoint at container start.
 
     Default: empty. Set to `1` to disable the skill sync.
 

@@ -24,7 +24,13 @@ grep -Fxq 'capsule example fixture' fixture.txt
 command -v graphify >/dev/null
 graphify --version >/dev/null
 
-# The entrypoint syncs the /graphify skill into the home volume on start.
+# The entrypoint syncs both Graphify skills into each agent's global skill
+# directory on start.
 [[ -f "$HOME/.claude/skills/graphify/SKILL.md" ]]
+[[ -f "$HOME/.codex/skills/graphify/SKILL.md" ]]
+[[ -f "$HOME/.gemini/config/skills/graphify/SKILL.md" ]]
+[[ -f "$HOME/.claude/skills/maintain-graphify/SKILL.md" ]]
+[[ -f "$HOME/.codex/skills/maintain-graphify/SKILL.md" ]]
+[[ -f "$HOME/.gemini/config/skills/maintain-graphify/SKILL.md" ]]
 
 printf 'capsule example ok\n'
