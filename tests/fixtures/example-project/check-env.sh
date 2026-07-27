@@ -33,4 +33,10 @@ graphify --version >/dev/null
 [[ -f "$HOME/.codex/skills/maintain-graphify/SKILL.md" ]]
 [[ -f "$HOME/.gemini/config/skills/maintain-graphify/SKILL.md" ]]
 
+# The OpenAI skill manifest is Codex-only; the sync drops the vendor-specific
+# agents/ dir from every other agent's copy.
+[[ -f "$HOME/.codex/skills/maintain-graphify/agents/openai.yaml" ]]
+[[ ! -e "$HOME/.claude/skills/maintain-graphify/agents" ]]
+[[ ! -e "$HOME/.gemini/config/skills/maintain-graphify/agents" ]]
+
 printf 'capsule example ok\n'
