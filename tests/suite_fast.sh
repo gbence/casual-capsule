@@ -416,6 +416,7 @@ test_sync_skills_contract() {
     "sync-skills copies the Capsule-owned skill contents"
 }
 
+# shellcheck disable=SC2016
 test_maintain_graphify_skill_contract() {
   assert_file_contains "$MAINTAIN_GRAPHIFY_SKILL_PATH" \
     'name: maintain-graphify' \
