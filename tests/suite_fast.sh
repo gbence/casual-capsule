@@ -414,6 +414,9 @@ test_sync_skills_contract() {
   assert_file_contains "$SYNC_SKILLS_PATH" \
     'cp -R "$CAPSULE_SKILL_DIR/." "$target/"' \
     "sync-skills copies the Capsule-owned skill contents"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'rm -rf "$target/agents"' \
+    "sync-skills keeps the OpenAI manifest out of non-Codex agents"
 }
 
 # shellcheck disable=SC2016

@@ -90,6 +90,11 @@ if [[ -d "$CAPSULE_SKILL_DIR" ]]; then
       continue
     fi
     cp -R "$CAPSULE_SKILL_DIR/." "$target/" 2>/dev/null || sync_ok=0
+    # agents/ holds vendor-specific manifests (currently only Codex's
+    # openai.yaml); keep it for Codex and drop it from every other agent.
+    if [[ "$skill_root" != "$HOME_DIR/.codex/skills" ]]; then
+      rm -rf "$target/agents" 2>/dev/null || true
+    fi
   done
 fi
 
