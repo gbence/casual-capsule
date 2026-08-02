@@ -100,9 +100,13 @@ COPY skills/maintain-graphify \
 # Switch user
 USER user
 
-# Install python and uv tools
+# Install python and uv tools. UV_LINK_MODE=copy for the same reason as the
+# graphify install above: uv's default reflink/clone from its cache fails with
+# EAGAIN on build filesystems without copy-on-write (some overlay/ZFS hosts).
+# Exported so it applies to all three uv invocations, not just the first.
 ARG PYTHON_VERSION=3.14
-RUN mise x -- uv python install --default ${PYTHON_VERSION} && \
+RUN export UV_LINK_MODE=copy && \
+    mise x -- uv python install --default ${PYTHON_VERSION} && \
     mise x -- uv tool install ruff && \
     mise x -- uv tool install ty
 
