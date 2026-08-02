@@ -236,7 +236,7 @@ Options:
   -p, --private-home  Bind-mount a per-user home directory.
       --publish HOST[:CONTAINER]  Publish port on host machine. Repeatable.
   -r, --remote HOST[:PORT]:/abs/path  Run on a remote Docker host over SSH.
-  -v, --volume HOST:CONTAINER  Bind-mount a volume. Repeatable.
+  -v, --volume HOST:CONTAINER[:OPTIONS]  Bind-mount a host path. Repeatable.
       --build-custom  Run the custom compose build before runtime.
       --no-cache  Pass --no-cache to build commands run by this script.
   -h, --help   Show this help message.
