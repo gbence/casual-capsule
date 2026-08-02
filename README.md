@@ -478,10 +478,12 @@ CAPSULE_PUBLISH="8080:8080;127.0.0.1:9229:9229" capsule
 
 ### Runtime volume mounts
 
-Use `--volume` or `-v` to add extra bind mounts to the Capsule container.
+Use `--volume` or `-v` to add extra bind mounts to the Capsule container. The
+mount specification follows Docker's `HOST:CONTAINER[:OPTIONS]` syntax.
 
 ```bash
 capsule --volume /host/cache:/cache
+capsule --volume /host/config:/etc/config:ro
 capsule -v /host/data:/data -v /host/cache:/cache
 ```
 
@@ -489,7 +491,7 @@ Use `CAPSULE_VOLUME` for repeatable mounts in environment-based launchers.
 Separate mount specs with semicolons.
 
 ```bash
-CAPSULE_VOLUME="/host/data:/data;/host/cache:/cache" capsule
+CAPSULE_VOLUME="/host/data:/data;/host/config:/etc/config:ro" capsule
 ```
 
 ### Bind mounts in containers started in a Capsule
@@ -555,8 +557,9 @@ Options:
 *   `--publish HOST[:CONTAINER]`: Publish a container port on the host when
     running the container. May be passed multiple times.
 
-*   `-v HOST:CONTAINER`, `--volume HOST:CONTAINER`: Bind-mount a host path into
-    the runtime container. May be passed multiple times.
+*   `-v HOST:CONTAINER[:OPTIONS]`, `--volume HOST:CONTAINER[:OPTIONS]`:
+    Bind-mount a host path into the runtime container. May be passed multiple
+    times. For example, use `:ro` for a read-only mount.
 
 *   `--no-cache`: Pass `--no-cache` to the build commands triggered by
     `--build` or `--build-custom`.
@@ -606,7 +609,8 @@ Options:
     Default: empty. Each non-empty entry is passed before command-line
     `--publish` options.
 
-*   `CAPSULE_VOLUME`: Semicolon-separated list of `--volume` specs.
+*   `CAPSULE_VOLUME`: Semicolon-separated list of
+    `HOST:CONTAINER[:OPTIONS]` `--volume` specs.
 
     Default: empty. Each non-empty entry is passed before command-line
     `--volume` options.
