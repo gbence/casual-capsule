@@ -24,6 +24,7 @@ common developer tools.
 - [Usage](#-usage)
 - [Capsule command examples](#%EF%B8%8F-capsule-command-examples)
 - [Additional features](#-additional-features)
+  - [Runtime backends: podman and Docker](#runtime-backends-podman-and-docker)
   - [UID and GID detection](#uid-and-gid-detection)
   - [Directory approval list](#directory-approval-list)
   - [Private home bind mount](#private-home-bind-mount)
@@ -44,6 +45,8 @@ common developer tools.
 ## 📋 Prerequisites
 
 - Docker Engine 24+ and Docker Compose v2
+- Optionally rootless [podman](https://podman.io) 4.9+, to run the Capsule
+  with a container engine of its own instead of the host daemon
 - Access to Claude or Codex.
 
 ## 🚀 Initial setup
@@ -334,6 +337,109 @@ capsule -- --build true
 
 ## 🧩 Additional features
 
+### Runtime backends: podman and Docker
+
+Capsule can start its container two ways. The Docker backend runs
+`docker compose run cli`, as it always has, and shares the host's Docker
+daemon. The podman backend runs the same image as a rootless
+[podman](https://podman.io) container that carries **its own container
+engine**, so the chain becomes:
+
+```
+host -> podman -> capsule -> the Capsule's own engine -> your project
+```
+
+That inner engine is private to the workspace the Capsule was started for. A
+project brought up inside a Capsule cannot see the host's containers or
+another workspace's, and `docker compose up` on a real stack behaves the way
+it does on the host.
+
+Capsule picks the backend on its own, and `--runtime` or `CAPSULE_RUNTIME`
+decides it for you:
+
+```bash
+capsule --runtime podman           # run the Capsule as a rootless container
+capsule --runtime docker           # keep using docker compose
+CAPSULE_RUNTIME=podman capsule     # the same choice, from the environment
+```
+
+#### What the podman backend needs
+
+*   **Rootless podman**, which is how it runs by default. Capsule refuses a
+    rootful podman rather than run your Capsule as real root.
+
+*   **A sub-id range** for your account, from the `uidmap` package. podman
+    reports it as a second entry in its id map; without one it cannot even
+    unpack an image that chowns a file. Capsule reads the same report and
+    falls back to the Docker backend, naming the reason.
+
+*   **A Linux VM on macOS**, which podman manages itself (`podman machine
+    init && podman machine start`). The workspace must live under `$HOME`
+    for the machine to see it.
+
+Unlike the Docker backend, no AppArmor or sysctl change is needed on Ubuntu
+23.10+: podman's rootless path works there as shipped.
+
+#### The Capsule's own engine
+
+Inside a podman Capsule, `docker` is served by an engine of the Capsule's
+own, and nothing runs until the first container command:
+
+```
+user@capsule:/home/workspace$ docker ps
+capsule: starting podman API socket (first use)...
+CONTAINER ID   IMAGE   COMMAND   CREATED   STATUS   PORTS   NAMES
+```
+
+That default engine is podman answering the **Docker API**, so the `docker`
+CLI and `docker compose` drive it with no daemon at rest. Projects that need
+a true Docker Engine switch to one, and the choice then sticks for the life
+of the Capsule:
+
+```
+user@capsule:/home/workspace$ capsule-docker use-dockerd
+capsule: starting docker daemon (first use)...
+capsule: engine: dockerd
+user@capsule:/home/workspace$ capsule-docker status
+engine: dockerd
+podman api socket: stopped
+dockerd: running
+```
+
+`capsule-docker use-podman` switches back and `capsule-docker stop` stops
+whatever the Capsule started. The real Engine is only present when the image
+was built with `CAPSULE_WITH_DOCKERD=1`, because it is the heavier of the
+two; the router says so if it is missing.
+
+#### What differs inside a podman Capsule
+
+*   **You are still `user`, and your files are still yours.** podman's
+    `keep-id` mapping puts your host account on the image's `user`, so
+    everything written in `/home/workspace` belongs to you on the host and
+    no UID/GID sync or privilege drop is needed.
+
+*   **The inner engine's storage is per workspace.** Images, volumes and
+    containers live in a volume keyed to the workspace path and mounted at
+    `/var/lib/capsule/inner`, so two projects never share an image cache or
+    see each other's containers. `CAPSULE_INNER_VOLUME` overrides the name.
+
+*   **The host's Docker daemon is out of reach unless you ask for it.**
+    `--host-docker` binds the host socket into the Capsule for the cases
+    where you deliberately want it; without the flag the Capsule only has
+    its own engine.
+
+*   **Publishing a port takes two hops.** The project publishes to the
+    Capsule, and `capsule --publish` publishes the Capsule to the host, so
+    a service on 8080 wants `capsule --publish 8080:8080` as well as the
+    usual `ports:` entry in the project's compose file.
+
+*   **The container is `--privileged`.** A nested engine has to mount a proc
+    and stack image layers. Rootless, that grants only what your own account
+    already has: the Capsule still cannot exceed you on the host.
+
+*   **`--remote` and custom compose files need a Docker daemon**, so those
+    invocations use the Docker backend and say so.
+
 ### UID and GID detection
 
 Capsule auto-detects the host user's UID/GID via `id -u`/`id -g` and
@@ -552,6 +658,13 @@ Options:
     `docker compose` against `ssh://HOST[:PORT]` and
     mount `/abs/path` as `/home/workspace` on that remote host.
 
+*   `--runtime podman|docker|auto`: Choose the backend that runs the Capsule.
+    `auto`, the default, prefers podman and falls back to Docker with the
+    reason named.
+
+*   `--host-docker`: Bind the host's Docker socket into the Capsule. Only
+    meaningful on the podman backend, which is otherwise isolated from it.
+
 *   `--publish HOST[:CONTAINER]`: Publish a container port on the host when
     running the container. May be passed multiple times.
 
@@ -567,6 +680,34 @@ Options:
     `docker compose run cli`.
 
 ### Environment variables
+
+*   `CAPSULE_RUNTIME`: Backend that runs the Capsule: `auto`, `podman`, or
+    `docker`.
+
+    Default: `auto`, which prefers podman when the host can run it rootless.
+
+*   `CAPSULE_IMAGE`: Image tag the podman backend builds and runs.
+
+    Default: `casual-capsule:local`. Set it to run a prebuilt image, which
+    also turns off the "image is not built" check.
+
+    A prebuilt image must have been built with the same
+    `CAPSULE_UID`/`CAPSULE_GID` as the host account, because keep-id
+    maps you onto that uid and nothing inside can adjust it.
+
+*   `CAPSULE_HOME_VOLUME`: podman volume mounted at `/home/user`.
+
+    Default: `casual-capsule-home`. Ignored under `--private-home`.
+
+*   `CAPSULE_INNER_VOLUME`: Volume holding the inner engine's images,
+    volumes and containers.
+
+    Default: derived from the workspace path, so each project gets its own.
+
+*   `CAPSULE_WITH_DOCKERD`: Build the image with a real Docker Engine.
+
+    Default: empty. Set to `1` at build time to make `capsule-docker
+    use-dockerd` available inside the Capsule.
 
 *   `CAPSULE_DEBUG`: Enable shell xtrace for `capsule.sh`.
 
@@ -645,6 +786,16 @@ Run the test suites on the host:
 $ tests/test_all.sh
 ```
 
+The podman backend is covered by the fast suite -- a mocked `podman` for the
+launcher, mocked engines for the in-Capsule router -- and by an end-to-end
+case that skips unless the host can run rootless containers. To exercise the
+whole chain on a real host, a Capsule with its own engine and a service
+running inside it, use the untracked operator check:
+
+```bash
+$ tmp/verify-podman-backend.sh
+```
+
 Run checks and tests inside a Capsule:
 
 ```bash
@@ -687,6 +838,15 @@ MISE_SYSTEM_TOOLS="bat fd jq ripgrep uv" docker compose build cli
 - `jq`: JSON filtering and inspection.
 - `rg` (`ripgrep`): Fast content search.
 - `uv`: Python version, tool, and environment management.
+
+Container engines (see
+[Runtime backends](#runtime-backends-podman-and-docker)):
+
+- `podman`: The Capsule's own rootless engine, which also answers the Docker
+  API so `docker` and `docker compose` work against it.
+- `dockerd`: A real Docker Engine, present only when the image is built with
+  `CAPSULE_WITH_DOCKERD=1`.
+- `capsule-docker`: Selects which of the two `docker` talks to.
 
 Installed via `apt`:
 
