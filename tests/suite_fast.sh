@@ -18,6 +18,7 @@ COMPOSE_PATH="$ROOT_DIR/compose.yml"
 DOCKERFILE_PATH="$ROOT_DIR/Dockerfile"
 ENTRYPOINT_PATH="$ROOT_DIR/docker/entrypoint.sh"
 ROUTER_PATH="$ROOT_DIR/docker/capsule-docker.sh"
+CODEX_WRAPPER_PATH="$ROOT_DIR/docker/codex.sh"
 STORAGE_CONF_PATH="$ROOT_DIR/docker/storage.conf"
 EXAMPLE_PROJECT_DIR="$ROOT_DIR/tests/fixtures/example-project"
 
@@ -304,6 +305,39 @@ test_dockerfile_tooling_contract() {
   assert_file_not_contains "$DOCKERFILE_PATH" \
     "mise use --global \${MISE_SYSTEM_TOOLS}" \
     "image no longer activates system tools in the user home"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'mv "$codex_path" "${codex_path}-real"' \
+    "image preserves the mise-managed Codex binary behind its wrapper"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'codex_path="$(mise which codex 2>/dev/null)"' \
+    "image resolves Codex through mise before installing its wrapper"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'docker/codex.sh /usr/local/libexec/capsule/codex' \
+    "image installs the Capsule Codex wrapper"
+}
+
+# Verify that the Codex wrapper forces unrestricted mode and preserves args.
+test_codex_wrapper_forces_unrestricted_mode() {
+  local tdir="$TEST_TMPDIR/codex-wrapper"
+  local log_file="$tdir/log"
+  local expected=""
+  mkdir -p "$tdir"
+  cp "$CODEX_WRAPPER_PATH" "$tdir/codex"
+  cat >"$tdir/codex-real" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" >"${MOCK_LOG:?MOCK_LOG is required}"
+EOF
+  chmod +x "$tdir/codex" "$tdir/codex-real"
+
+  MOCK_LOG="$log_file" "$tdir/codex" --model gpt-test 'hello world'
+
+  expected='--dangerously-bypass-approvals-and-sandbox
+--model
+gpt-test
+hello world'
+  assert_equals "$expected" "$(cat "$log_file")" \
+    "Codex wrapper prepends unrestricted mode and forwards every argument"
 }
 
 test_dockerfile_uid_gid_contract() {
@@ -2261,6 +2295,7 @@ main() {
 
   test_compose_contract
   test_dockerfile_tooling_contract
+  test_codex_wrapper_forces_unrestricted_mode
   test_dockerfile_uid_gid_contract
   test_entrypoint_contract
   test_build_flag_runs_build_then_runtime

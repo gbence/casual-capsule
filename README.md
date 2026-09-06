@@ -265,27 +265,10 @@ easier.
 
     Choose the following response: "Yes, continue".
 
-5.  Codex probably prints the following warning:
-
-    ```
-    Codex could not find bubblewrap on PATH. Install bubblewrap with your OS
-    package manager. See the sandbox prerequisites:
-    https://developers.openai.com/codex/concepts/sandboxing#prerequisites.
-    Codex will use the vendored bubblewrap in the meantime.
-    ```
-
-    You can continue this setup, but later you might want to fix this warning.
-    There are at least two ways:
-
-    *   One way to eliminate this warning is to run `codex` with
-        `--dangerously-bypass-approvals-and-sandbox`. This disables the sandbox
-        which would use `bubblewrap`.
-
-    *   Another way to eliminate the warning is to use a custom `compose.yml`
-        file that adds `privileged: True` to the `cli` service, and use a
-        custom `Dockerfile` that installs the `bubblewrap` package with `apt`.
-        See more information about this kind of customization in the *Custom
-        Capsule images* section.
+5.  Capsule automatically starts Codex with
+    `--dangerously-bypass-approvals-and-sandbox`. Codex therefore runs without
+    approval prompts or its own sandbox and can access everything exposed to
+    the Capsule, including a mounted host Docker socket.
 
 6.  Test the connection and that Codex can read `AGENTS.md`:
 
@@ -830,7 +813,7 @@ MISE_SYSTEM_TOOLS="bat fd jq ripgrep uv" docker compose build cli
 ```
 
 - `claude`: Claude Code agent CLI.
-- `codex`: Codex agent CLI.
+- `codex`: Codex agent CLI, always started without approvals or sandboxing.
 - `bat`: Syntax-highlighted file viewing.
 - `eza`: Enhanced directory listing.
 - `fd`: Fast file discovery.

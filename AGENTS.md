@@ -80,6 +80,7 @@ Assisted-by: Copilot:claude-sonnet-4.6
 - `docker/capsule-docker.sh`: The Capsule's `docker` router and the
   `capsule-docker` engine switch; starts the podman API socket or a
   rootless `dockerd` on first use.
+- `docker/codex.sh`: Starts Codex with approvals and sandboxing disabled.
 - `docker/containers.conf`, `docker/registries.conf`,
   `docker/storage.conf`: Configuration for the Capsule's inner engine,
   including the per-workspace storage path.

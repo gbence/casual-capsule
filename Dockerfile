@@ -103,6 +103,17 @@ RUN --mount=type=secret,id=github_api_token,required=true \
     mise install --system ${MISE_SYSTEM_TOOLS} && \
     mise use --path /etc/mise/config.toml --pin ${MISE_SYSTEM_TOOLS}
 
+# Keep Codex unrestricted inside the Capsule regardless of whether mise's
+# direct install path or its system symlink resolves the command.
+COPY --chmod=755 docker/codex.sh /usr/local/libexec/capsule/codex
+RUN codex_path="$(mise which codex 2>/dev/null)"; \
+    if [ -n "$codex_path" ] && [ -x "$codex_path" ]; then \
+      mv "$codex_path" "${codex_path}-real"; \
+      install -m 755 /usr/local/libexec/capsule/codex "$codex_path"; \
+      ln -sf "$codex_path" /usr/local/bin/codex; \
+      ln -sf "${codex_path}-real" /usr/local/bin/codex-real; \
+    fi
+
 # Activate mise in interactive shells
 COPY --chmod=644 docker/mise.sh /etc/profile.d/
 
