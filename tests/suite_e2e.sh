@@ -108,6 +108,16 @@ require_docker_prereqs() {
   return 0
 }
 
+# Return success when Capsule's required GitHub secret is available.
+require_github_token() {
+  if [[ -z "${GITHUB_API_TOKEN:-}" ]]; then
+    skip "$1 requires GITHUB_API_TOKEN"
+    return 1
+  fi
+
+  return 0
+}
+
 # Return success when this host can run the Capsule under rootless podman.
 require_podman_prereqs() {
   local info=""
@@ -150,6 +160,9 @@ test_podman_backend_end_to_end() {
   log_message "Starting test_podman_backend_end_to_end"
 
   if ! require_podman_prereqs "podman e2e"; then
+    return
+  fi
+  if ! require_github_token "podman e2e"; then
     return
   fi
 
@@ -197,6 +210,9 @@ test_example_project_end_to_end() {
   if ! require_docker_prereqs "example project e2e"; then
     return
   fi
+  if ! require_github_token "example project e2e"; then
+    return
+  fi
 
   printf '%s\n' "$EXAMPLE_PROJECT_DIR" >"$config_file"
   printf '%s\n' "$token" >"$token_file"
@@ -228,6 +244,9 @@ test_custom_compose_end_to_end() {
   log_message "Starting test_custom_compose_end_to_end"
 
   if ! require_docker_prereqs "custom compose e2e"; then
+    return
+  fi
+  if ! require_github_token "custom compose e2e"; then
     return
   fi
 
@@ -264,6 +283,9 @@ test_custom_compose_build_custom_end_to_end() {
   log_message "Starting test_custom_compose_build_custom_end_to_end"
 
   if ! require_docker_prereqs "custom compose build-custom e2e"; then
+    return
+  fi
+  if ! require_github_token "custom compose build-custom e2e"; then
     return
   fi
 
