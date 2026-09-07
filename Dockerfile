@@ -84,6 +84,10 @@ RUN UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python \
 # Sync Graphify's agent skills into the persistent home at container start.
 COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/
 
+# Add Capsule's graph lifecycle skill beside Graphify's vendor skill.
+COPY skills/maintain-graphify \
+  /usr/local/share/capsule-skills/maintain-graphify
+
 # Entrypoint runs as root, adjusts UID/GID, drops privileges
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/bash", "-il"]

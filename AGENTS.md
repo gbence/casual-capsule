@@ -76,6 +76,7 @@ Assisted-by: Copilot:claude-sonnet-4.6
 - `docker/entrypoint.sh`: Root entrypoint; syncs UID/GID, Docker group,
   and home ownership, then execs as `user`.
 - `docker/sync-skills.sh`: Refreshes bundled Graphify skills in agent homes.
+- `skills/maintain-graphify/`: Lifecycle guidance for graph-aware work.
 - `docker/setup-docker.sh`: Installs Docker APT repo, CLI, Compose,
   and buildx.
 - `docker/mise.sh`: Activates `mise` and Bash completions for

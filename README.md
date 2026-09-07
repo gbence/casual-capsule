@@ -468,6 +468,12 @@ knowledge-graph CLI and agent skill. On container start, Capsule refreshes
 Graphify's vendor skill for Claude, Codex, and Antigravity in the persistent
 home volume. Set `CAPSULE_SKIP_SKILL_SYNC=1` to skip this step.
 
+Capsule also provides a `maintain-graphify` lifecycle skill. It uses an
+existing graph before broad code inspection, refreshes structural data after
+changes, and keeps forced rebuilds or hook installation explicit. Its content
+is included in the same version stamp, so rebuilding the image refreshes both
+skills without rewriting project-level agent instructions.
+
 Use `$graphify .` in Codex or `/graphify .` in Claude and Antigravity. The CLI
 is also available directly. For a local, code-only graph that needs no LLM
 credentials, run:

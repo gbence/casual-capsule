@@ -24,5 +24,11 @@ graphify --version >/dev/null
 [[ -f "$HOME/.claude/skills/graphify/SKILL.md" ]]
 [[ -f "$HOME/.codex/skills/graphify/SKILL.md" ]]
 [[ -f "$HOME/.gemini/config/skills/graphify/SKILL.md" ]]
+[[ -f "$HOME/.claude/skills/maintain-graphify/SKILL.md" ]]
+[[ -f "$HOME/.codex/skills/maintain-graphify/SKILL.md" ]]
+[[ -f "$HOME/.gemini/config/skills/maintain-graphify/SKILL.md" ]]
+[[ ! -e "$HOME/.claude/skills/maintain-graphify/agents" ]]
+[[ -f "$HOME/.codex/skills/maintain-graphify/agents/openai.yaml" ]]
+[[ ! -e "$HOME/.gemini/config/skills/maintain-graphify/agents" ]]
 
 printf 'capsule example ok\n'
