@@ -18,4 +18,11 @@ set -euo pipefail
 
 grep -Fxq 'capsule example fixture' fixture.txt
 
+# Verify that Graphify and each bundled agent's vendor skill are available.
+command -v graphify >/dev/null
+graphify --version >/dev/null
+[[ -f "$HOME/.claude/skills/graphify/SKILL.md" ]]
+[[ -f "$HOME/.codex/skills/graphify/SKILL.md" ]]
+[[ -f "$HOME/.gemini/config/skills/graphify/SKILL.md" ]]
+
 printf 'capsule example ok\n'

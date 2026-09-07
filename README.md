@@ -29,6 +29,7 @@ common developer tools.
   - [Private home bind mount](#private-home-bind-mount)
   - [Custom Capsule images](#custom-capsule-images)
   - [Updating your GitHub token](#updating-your-github-token)
+  - [Graphify knowledge graphs](#graphify-knowledge-graphs)
   - [Port publishing](#port-publishing)
   - [Runtime volume mounts](#runtime-volume-mounts)
   - [Bind mounts in containers started in a Capsule](#bind-mounts-in-containers-started-in-a-capsule)
@@ -459,6 +460,42 @@ your token:
 The updated credentials are written to the persistent home volume and
 survive subsequent restarts.  No rebuild is required.
 
+### Graphify knowledge graphs
+
+The image includes
+[Graphify](https://github.com/Graphify-Labs/graphify), a local
+knowledge-graph CLI and agent skill. On container start, Capsule refreshes
+Graphify's vendor skill for Claude, Codex, and Antigravity in the persistent
+home volume. Set `CAPSULE_SKIP_SKILL_SYNC=1` to skip this step.
+
+Use `$graphify .` in Codex or `/graphify .` in Claude and Antigravity. The CLI
+is also available directly. For a local, code-only graph that needs no LLM
+credentials, run:
+
+```bash
+capsule bash -lc "graphify extract . --code-only"
+```
+
+Generated data is stored under `graphify-out/`, which Capsule git-ignores.
+Project-specific exclusions belong in `.graphifyignore` using gitignore
+syntax.
+
+Every `capsule --build` checks PyPI for the latest stable Graphify release and
+passes that exact version into the image build. If the lookup fails, the
+Dockerfile's pinned default is used. Because the resolved version is a build
+argument, Docker reuses the Graphify layer until the version changes.
+
+Set `GRAPHIFY_VERSION` to use a specific release or to make an offline build
+fully reproducible:
+
+```bash
+GRAPHIFY_VERSION=0.9.55 capsule --build
+```
+
+A direct `docker compose build cli` uses the Dockerfile default unless the
+same environment variable is set. After changing the Graphify version, the
+next container start automatically refreshes its installed agent skills.
+
 ### Port publishing
 
 Use `--publish` to expose a port from the Capsule container on the Docker
@@ -619,6 +656,10 @@ Options:
 
     Default: empty.
 
+*   `CAPSULE_SKIP_SKILL_SYNC`: Skip Graphify's agent-skill refresh.
+
+    Default: empty. Set to `1` to skip the refresh.
+
 *   `CAPSULE_CONFIG`: Path to the file that contains the approved directories.
 
     Default: `~/.config/capsule`.
@@ -630,6 +671,11 @@ Options:
 
 *   `GITHUB_API_TOKEN`: Passed as a build secret for `gh` auth and for `mise`
     tool downloads from GitHub.
+
+*   `GRAPHIFY_VERSION`: Override the Graphify package version used by builds.
+
+    Default: latest stable release for `capsule --build`; otherwise the
+    version pinned in the Dockerfile.
 
 ## 🧪 Run checks and tests
 
@@ -700,13 +746,16 @@ Python tooling (installed via `uv`; binaries available on `PATH` via
   `3.14`).
 - `ruff`: Fast Python linter and formatter.
 - `ty`: Python type checker.
+- `graphify`: Local knowledge-graph CLI and agent skill (version set by the
+  `GRAPHIFY_VERSION` build argument).
 
 Verify inside capsule:
 
 ```bash
 capsule bash -lc "rg --version && fd --version && jq --version && \
   bat --version && eza --version && shellcheck --version && \
-  gh --version && tree --version && python --version"
+  gh --version && tree --version && graphify --version && \
+  python --version"
 ```
 
 ## 🔐 Security Note

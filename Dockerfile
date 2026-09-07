@@ -69,7 +69,21 @@ RUN mise x -- uv python install --default ${PYTHON_VERSION} && \
 # Add mise shims to path
 ENV PATH="/usr/local/share/mise/shims:$PATH"
 
-# Entrypoint runs as root, adjusts UID/GID, drops privileges
+# Install Graphify after the stable Python tooling so version refreshes only
+# invalidate this small tail of the image.
 USER root
+ARG GRAPHIFY_VERSION=0.9.55
+RUN UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python \
+    UV_TOOL_DIR=/usr/local/share/uv/tools \
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    UV_LINK_MODE=copy \
+    mise x uv -- uv tool install "graphifyy==${GRAPHIFY_VERSION}" && \
+    printf '%s\n' "${GRAPHIFY_VERSION}" \
+      >/usr/local/share/graphify-version
+
+# Sync Graphify's agent skills into the persistent home at container start.
+COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/
+
+# Entrypoint runs as root, adjusts UID/GID, drops privileges
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/bash", "-il"]
