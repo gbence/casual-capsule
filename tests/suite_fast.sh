@@ -17,6 +17,7 @@ CHECK_ALL_PATH="$ROOT_DIR/tests/check_all.sh"
 COMPOSE_PATH="$ROOT_DIR/compose.yml"
 DOCKERFILE_PATH="$ROOT_DIR/Dockerfile"
 ENTRYPOINT_PATH="$ROOT_DIR/docker/entrypoint.sh"
+SYNC_SKILLS_PATH="$ROOT_DIR/docker/sync-skills.sh"
 EXAMPLE_PROJECT_DIR="$ROOT_DIR/tests/fixtures/example-project"
 
 unset CAPSULE_CUSTOM_COMPOSE
@@ -31,6 +32,9 @@ unset CAPSULE_VOLUME
 unset CAPSULE_WORKDIR
 unset DOCKER_GID
 unset DOCKER_HOST
+unset GRAPHIFY_VERSION
+unset MOCK_GRAPHIFY_FETCH_FAIL
+unset MOCK_GRAPHIFY_VERSION
 
 TEST_TMPDIR="$(mktemp -d)"
 # Resolve symlinks so paths match what capsule.sh produces via pwd -P.
@@ -117,6 +121,7 @@ if [[ "${1:-}" == "compose" ]]; then
     printf 'ENV_CAPSULE_CUSTOM_DIR=%s\n' "${CAPSULE_CUSTOM_DIR:-}"
     printf 'ENV_CAPSULE_UID=%s\n' "${CAPSULE_UID:-}"
     printf 'ENV_CAPSULE_GID=%s\n' "${CAPSULE_GID:-}"
+    printf 'ENV_GRAPHIFY_VERSION=%s\n' "${GRAPHIFY_VERSION:-}"
     printf 'ARGS=%s\n' "$*"
   } >>"${MOCK_LOG:?MOCK_LOG is required}"
   exit 0
@@ -181,7 +186,23 @@ EOF
 
   cat >"$dir/curl" <<'EOF'
 #!/usr/bin/env bash
-printf '2024.1.0\n'
+set -euo pipefail
+case "$*" in
+  *mise.en.dev/VERSION*)
+    printf '2024.1.0\n'
+    ;;
+  *pypi.org/pypi/graphifyy/json*)
+    if [[ -n "${MOCK_GRAPHIFY_FETCH_FAIL:-}" ]]; then
+      exit 22
+    fi
+    printf '{"info":{"name":"graphifyy","version":"%s","yanked":false}}\n' \
+      "${MOCK_GRAPHIFY_VERSION:-0.9.55}"
+    ;;
+  *)
+    printf 'unexpected curl call: %s\n' "$*" >&2
+    exit 1
+    ;;
+esac
 EOF
 
   chmod +x "$dir/docker" "$dir/stat" "$dir/uname" "$dir/ls" \
@@ -258,6 +279,12 @@ test_compose_contract() {
   assert_file_contains "$COMPOSE_PATH" \
     '- MISE_SYSTEM_TOOLS' \
     "compose passes MISE_SYSTEM_TOOLS from the build environment"
+  assert_file_contains "$COMPOSE_PATH" \
+    '- GRAPHIFY_VERSION' \
+    "compose passes GRAPHIFY_VERSION to the image build"
+  assert_file_contains "$COMPOSE_PATH" \
+    'CAPSULE_SKIP_SKILL_SYNC=${CAPSULE_SKIP_SKILL_SYNC:-}' \
+    "compose passes the Graphify skill-sync toggle"
 }
 
 test_dockerfile_tooling_contract() {
@@ -279,6 +306,15 @@ test_dockerfile_tooling_contract() {
   assert_file_not_contains "$DOCKERFILE_PATH" \
     "mise use --global \${MISE_SYSTEM_TOOLS}" \
     "image no longer activates system tools in the user home"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'ARG GRAPHIFY_VERSION=0.9.55' \
+    "image pins a fallback Graphify version"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    "uv tool install \"graphifyy==\${GRAPHIFY_VERSION}\"" \
+    "image installs the selected Graphify release with uv"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/' \
+    "image installs the Graphify skill-sync helper"
 }
 
 test_dockerfile_uid_gid_contract() {
@@ -345,6 +381,30 @@ test_entrypoint_contract() {
   assert_file_contains "$ENTRYPOINT_PATH" \
     'auth login --with-token' \
     "entrypoint refreshes gh credentials from runtime secret"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    '/usr/local/bin/sync-skills.sh' \
+    "entrypoint refreshes Graphify skills before runtime"
+}
+
+# Verify that Graphify skill refreshes are versioned and retry partial failures.
+test_sync_skills_contract() {
+  if ! bash -n "$SYNC_SKILLS_PATH"; then
+    fail "sync-skills.sh has valid shell syntax"
+  else
+    pass "sync-skills.sh has valid shell syntax"
+  fi
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'CAPSULE_SKIP_SKILL_SYNC' \
+    "skill sync honors its opt-out"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'for platform in claude codex antigravity' \
+    "skill sync covers every bundled agent"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'sync_ok=0' \
+    "skill sync retries after an incomplete refresh"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'graphify-skills' \
+    "skill sync stamps successful version refreshes"
 }
 
 test_build_flag_runs_build_then_runtime() {
@@ -357,7 +417,8 @@ test_build_flag_runs_build_then_runtime() {
   mkdir -p "$tdir"
   make_mock_bin "$mock_bin"
 
-  DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" --build true
+  DOCKER_GID=1111 MOCK_GRAPHIFY_VERSION=0.9.99 \
+    run_capsule "$mock_bin" "$log_file" --build true
 
   expected_build="ARGS=compose -f $COMPOSE_PATH"
   expected_build="$expected_build build --build-arg MISE_VERSION=${mise_ver}"
@@ -373,6 +434,42 @@ test_build_flag_runs_build_then_runtime() {
     "$expected_run" \
     "$(entry_from_log ARGS 2 "$log_file")" \
     "build flag still runs compose runtime"
+  assert_equals \
+    "0.9.99" \
+    "$(value_from_log ENV_GRAPHIFY_VERSION "$log_file")" \
+    "build flag exports the latest Graphify release"
+}
+
+# Verify explicit and offline Graphify builds retain a pinned version path.
+test_graphify_version_resolution_fallbacks() {
+  local tdir="$TEST_TMPDIR/graphify-version"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  local err_file="$tdir/err"
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  GRAPHIFY_VERSION=0.9.54 MOCK_GRAPHIFY_FETCH_FAIL=1 DOCKER_GID=1111 \
+    run_capsule "$mock_bin" "$log_file" --build true 2>"$err_file"
+  assert_equals \
+    "0.9.54" \
+    "$(value_from_log ENV_GRAPHIFY_VERSION "$log_file")" \
+    "explicit Graphify version bypasses release discovery"
+  assert_file_not_contains "$err_file" \
+    'cannot fetch latest Graphify version' \
+    "explicit Graphify version needs no fallback warning"
+
+  : >"$log_file"
+  : >"$err_file"
+  MOCK_GRAPHIFY_FETCH_FAIL=1 DOCKER_GID=1111 \
+    run_capsule "$mock_bin" "$log_file" --build true 2>"$err_file"
+  assert_equals \
+    "" \
+    "$(value_from_log ENV_GRAPHIFY_VERSION "$log_file")" \
+    "failed discovery leaves the Dockerfile fallback active"
+  assert_file_contains "$err_file" \
+    'cannot fetch latest Graphify version; using image default' \
+    "failed discovery reports the pinned fallback"
 }
 
 test_no_cache_flag_applies_to_build_only() {
@@ -1608,7 +1705,9 @@ main() {
   test_dockerfile_tooling_contract
   test_dockerfile_uid_gid_contract
   test_entrypoint_contract
+  test_sync_skills_contract
   test_build_flag_runs_build_then_runtime
+  test_graphify_version_resolution_fallbacks
   test_no_cache_flag_applies_to_build_only
   test_double_dash_keeps_runtime_flags
   test_publish_and_volume_flags_forward_to_runtime

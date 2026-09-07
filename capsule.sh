@@ -253,6 +253,7 @@ Environment:
   CAPSULE_VOLUME   Semicolon-separated --volume specs.
   CAPSULE_WORKDIR  Workspace directory (default: cwd).
   CAPSULE_CUSTOM_COMPOSE  Optional override compose file.
+  GRAPHIFY_VERSION  Graphify version (latest release during builds).
 EOF
 }
 
@@ -754,6 +755,26 @@ fetch_mise_version() {
   printf '%s\n' "$mise_version"
 }
 
+# Fetch the latest stable Graphify release from the package registry.
+fetch_graphify_version() {
+  local graphify_version=""
+  local version_pattern='^[0-9]+(\.[0-9]+){2}([a-zA-Z0-9.+-]+)?$'
+
+  if ! graphify_version="$(
+    curl -fsSL https://pypi.org/pypi/graphifyy/json \
+      | tr ',' '\n' \
+      | sed -n 's/^"version":"\([^"]*\)"$/\1/p'
+  )"; then
+    return 1
+  fi
+
+  if [[ ! "$graphify_version" =~ $version_pattern ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$graphify_version"
+}
+
 # Run "docker compose build" with the common MISE_VERSION build arg.
 run_compose_build() {
   local mise_version="$1"
@@ -794,6 +815,7 @@ run_capsule_runtime() {
 
 main() {
   local mise_version=""
+  local graphify_version=""
 
   initialize_workdir_state
   initialize_user_ids
@@ -814,6 +836,15 @@ main() {
 
   if [[ "$BUILD_MODE" != "none" ]]; then
     mise_version="$(fetch_mise_version)"
+    if [[ -z "${GRAPHIFY_VERSION:-}" ]]; then
+      if graphify_version="$(fetch_graphify_version)"; then
+        export GRAPHIFY_VERSION="$graphify_version"
+      else
+        warn 'cannot fetch latest Graphify version; using image default'
+      fi
+    else
+      export GRAPHIFY_VERSION
+    fi
     run_requested_builds "$mise_version"
   fi
 
