@@ -18,6 +18,7 @@ COMPOSE_PATH="$ROOT_DIR/compose.yml"
 DOCKERFILE_PATH="$ROOT_DIR/Dockerfile"
 ENTRYPOINT_PATH="$ROOT_DIR/docker/entrypoint.sh"
 SYNC_SKILLS_PATH="$ROOT_DIR/docker/sync-skills.sh"
+MAINTAIN_GRAPHIFY_PATH="$ROOT_DIR/skills/maintain-graphify/SKILL.md"
 EXAMPLE_PROJECT_DIR="$ROOT_DIR/tests/fixtures/example-project"
 
 unset CAPSULE_CUSTOM_COMPOSE
@@ -315,6 +316,9 @@ test_dockerfile_tooling_contract() {
   assert_file_contains "$DOCKERFILE_PATH" \
     'COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/' \
     "image installs the Graphify skill-sync helper"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'skills/maintain-graphify' \
+    "image packages the Capsule Graphify lifecycle skill"
 }
 
 test_dockerfile_uid_gid_contract() {
@@ -405,6 +409,40 @@ test_sync_skills_contract() {
   assert_file_contains "$SYNC_SKILLS_PATH" \
     'graphify-skills' \
     "skill sync stamps successful version refreshes"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'capsule_skill_hash' \
+    "skill sync detects Capsule lifecycle skill changes"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    '.claude/skills' \
+    "skill sync copies the lifecycle skill for Claude"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    '.codex/skills' \
+    "skill sync copies the lifecycle skill for Codex"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    '.gemini/config/skills' \
+    "skill sync copies the lifecycle skill for Antigravity"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    "rm -rf \"\$target/agents\"" \
+    "skill sync keeps OpenAI metadata Codex-only"
+}
+
+# Verify that the lifecycle skill is complete and keeps mutations explicit.
+test_maintain_graphify_skill_contract() {
+  assert_file_contains "$MAINTAIN_GRAPHIFY_PATH" \
+    'name: maintain-graphify' \
+    "lifecycle skill declares its stable name"
+  assert_file_not_contains "$MAINTAIN_GRAPHIFY_PATH" \
+    'TODO' \
+    "lifecycle skill contains no scaffold placeholders"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_PATH" \
+    'graphify update ROOT --force' \
+    "lifecycle skill handles intentional graph shrinkage"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_PATH" \
+    "Run \`graphify hook install\` only when the user requests" \
+    "lifecycle skill requires explicit hook requests"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_PATH" \
+    'GRAPHIFY_VERSION=X.Y.Z' \
+    "lifecycle skill documents image-managed upgrades"
 }
 
 test_build_flag_runs_build_then_runtime() {
@@ -1706,6 +1744,7 @@ main() {
   test_dockerfile_uid_gid_contract
   test_entrypoint_contract
   test_sync_skills_contract
+  test_maintain_graphify_skill_contract
   test_build_flag_runs_build_then_runtime
   test_graphify_version_resolution_fallbacks
   test_no_cache_flag_applies_to_build_only
