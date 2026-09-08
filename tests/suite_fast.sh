@@ -476,20 +476,20 @@ test_publish_and_volume_flags_forward_to_runtime() {
 
   DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" \
     --publish 8080:80 --publish 8443:443 \
-    --volume /host/data:/data --volume /host/cache:/cache true
+    --volume /host/data:/data --volume /host/config:/etc/config:ro true
 
   expected_args="compose -f $COMPOSE_PATH"
   expected_args="$expected_args run --rm"
   expected_args="$expected_args --publish 8080:80"
   expected_args="$expected_args --publish 8443:443"
   expected_args="$expected_args --volume /host/data:/data"
-  expected_args="$expected_args --volume /host/cache:/cache"
+  expected_args="$expected_args --volume /host/config:/etc/config:ro"
   expected_args="$expected_args cli true"
 
   assert_equals \
     "$expected_args" \
     "$(value_from_log ARGS "$log_file")" \
-    "publish and volume flags forward to compose run"
+    "publish and volume flags, including read-only mounts, reach compose run"
 }
 
 test_publish_and_volume_env_forward_to_runtime() {
