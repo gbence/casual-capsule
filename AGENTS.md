@@ -70,13 +70,15 @@ Assisted-by: Copilot:claude-sonnet-4.6
 - `Dockerfile`: Debian-based image with dev tools, `mise`,
   Docker CLI/Compose, `podman`, Claude/Codex CLIs, Python, `ruff`, and
   `ty`. `CAPSULE_WITH_DOCKERD=1` adds a real Docker Engine.
-- `compose.yml`: Local `cli` service; mounts workspace, Docker socket,
-  and home volume; provides build and runtime `github_api_token` secret.
+- `compose.yml`: Local privileged `cli` service; mounts workspace, Docker
+  socket, and home volume; permits nested Podman tests; provides the build
+  and runtime `github_api_token` secret.
 - `capsule.sh`: Launcher; selects the podman or Docker backend, and
   handles allowlist, UID/GID, build flags, and runtime invocations.
 - `docker/entrypoint.sh`: Root entrypoint; syncs UID/GID, Docker socket
-  group, and home ownership, then execs as `user`. Under podman the
-  container already starts as `user`, so it only refreshes credentials.
+  group, nested Podman ID ranges, and home ownership, then execs as `user`.
+  Under podman the container already starts as `user`, so it only refreshes
+  credentials.
 - `docker/capsule-docker.sh`: The Capsule's `docker` router and the
   `capsule-docker` engine switch; starts the podman API socket or a
   rootless `dockerd` on first use.

@@ -332,6 +332,13 @@ engine**, so the chain becomes:
 host -> podman -> capsule -> the Capsule's own engine -> your project
 ```
 
+Both backends run the Capsule as a privileged container. The Docker backend
+needs this so the rootless podman installed in the Capsule can run the
+repository's podman tests; the podman backend needs it for its own nested
+engine. On the Docker backend the entrypoint also assigns a complete
+subordinate ID range, so nested builds can use standard system accounts such
+as UID/GID 65534. The entrypoint still runs interactive commands as `user`.
+
 That inner engine is private to the workspace the Capsule was started for. A
 project brought up inside a Capsule cannot see the host's containers or
 another workspace's, and `docker compose up` on a real stack behaves the way
@@ -416,9 +423,9 @@ two; the router says so if it is missing.
     a service on 8080 wants `capsule --publish 8080:8080` as well as the
     usual `ports:` entry in the project's compose file.
 
-*   **The container is `--privileged`.** A nested engine has to mount a proc
-    and stack image layers. Rootless, that grants only what your own account
-    already has: the Capsule still cannot exceed you on the host.
+*   **The outer podman container is `--privileged`.** A nested engine has to
+    mount a proc and stack image layers. Rootless, that grants only what your
+    own account already has: the Capsule still cannot exceed you on the host.
 
 *   **`--remote` and custom compose files need a Docker daemon**, so those
     invocations use the Docker backend and say so.
@@ -590,8 +597,10 @@ path back to the daemon-host path before asking Docker to create the
 
 Inside a Capsule, do not reset `CAPSULE_HOST_WORKDIR`. The outer Capsule sets
 it to the daemon-host workspace root, and nested launches reuse it
-automatically. Use `CAPSULE_HOST_PATH_MAP` only when the current non-Capsule
-container sees the same files under a different absolute path.
+automatically when they use Docker. When a nested launch selects local podman,
+Capsule automatically uses the current container path instead. Use
+`CAPSULE_HOST_PATH_MAP` only when the current non-Capsule container sees the
+same files under a different absolute path.
 
 ```bash
 CAPSULE_HOST_PATH_MAP=/workspace=/home/myuser/myproject capsule
@@ -854,8 +863,10 @@ capsule bash -lc "rg --version && fd --version && jq --version && \
 
 ## 🔐 Security Note
 
-This setup mounts `/var/run/docker.sock` into the container, giving it
-host-level Docker access. Do not use with untrusted code or shared hosts.
+The Docker backend runs the Capsule as a privileged container and mounts the
+host Docker socket at `/var/lib/capsule/docker.sock`. Either capability can
+provide host-level access. Do not use this setup with untrusted code or on
+shared hosts.
 
 ## 📄 License
 

@@ -270,6 +270,15 @@ test_compose_contract() {
     '${CAPSULE_HOME_MOUNT:-home:/home/user}' \
     "compose allows the home mount to be overridden"
   assert_file_contains "$COMPOSE_PATH" \
+    'privileged: true' \
+    "compose permits nested rootless podman during repository tests"
+  assert_file_contains "$COMPOSE_PATH" \
+    '/var/run/docker.sock:/var/lib/capsule/docker.sock' \
+    "compose mounts the host socket where the engine router expects it"
+  assert_file_contains "$COMPOSE_PATH" \
+    'DOCKER_HOST=unix:///var/lib/capsule/docker.sock' \
+    "compose points Docker clients at the routed host socket"
+  assert_file_contains "$COMPOSE_PATH" \
     'CAPSULE_HOME_HOST_DIR=${CAPSULE_HOME_HOST_DIR:-}' \
     "compose passes host home mount info to nested capsules"
   assert_file_contains "$COMPOSE_PATH" \
@@ -305,9 +314,11 @@ test_dockerfile_tooling_contract() {
   assert_file_not_contains "$DOCKERFILE_PATH" \
     "mise use --global \${MISE_SYSTEM_TOOLS}" \
     "image no longer activates system tools in the user home"
+  # shellcheck disable=SC2016
   assert_file_contains "$DOCKERFILE_PATH" \
     'mv "$codex_path" "${codex_path}-real"' \
     "image preserves the mise-managed Codex binary behind its wrapper"
+  # shellcheck disable=SC2016
   assert_file_contains "$DOCKERFILE_PATH" \
     'codex_path="$(mise which codex 2>/dev/null)"' \
     "image resolves Codex through mise before installing its wrapper"
@@ -378,6 +389,15 @@ test_entrypoint_contract() {
     'DOCKER_GID' \
     "entrypoint handles DOCKER_GID group"
   assert_file_contains "$ENTRYPOINT_PATH" \
+    'SUBORDINATE_ID_COUNT=65536' \
+    "entrypoint grants nested podman a complete subordinate ID range"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    '"$SUBORDINATE_UID_START" "$SUBORDINATE_ID_COUNT" >/etc/subuid' \
+    "entrypoint installs the runtime subordinate UID range"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    '"$SUBORDINATE_GID_START" "$SUBORDINATE_ID_COUNT" >/etc/subgid' \
+    "entrypoint installs the runtime subordinate GID range"
+  assert_file_contains "$ENTRYPOINT_PATH" \
     'export HOME=' \
     "entrypoint sets HOME before dropping privileges"
   assert_file_contains "$ENTRYPOINT_PATH" \
@@ -400,7 +420,10 @@ test_entrypoint_contract() {
     "entrypoint reads github token from compose secret mount"
   assert_file_contains "$ENTRYPOINT_PATH" \
     'GH=/usr/local/bin/gh' \
-    "entrypoint resolves gh via the symlink, not a fatal mise lookup"
+    "entrypoint prefers a direct system gh binary"
+  assert_file_contains "$ENTRYPOINT_PATH" \
+    'mise --cd / which gh' \
+    "entrypoint resolves the system gh install for root and podman users"
   assert_file_contains "$ENTRYPOINT_PATH" \
     'auth login --with-token' \
     "entrypoint refreshes gh credentials from runtime secret"
@@ -1708,6 +1731,9 @@ test_podman_backend_runs_container_with_keep_id() {
     '--userns keep-id:uid=1000,gid=100' \
     "podman backend maps the host user onto the image's account"
   assert_podman_args_contain "$CASE_LOG" \
+    '--user user' \
+    "podman backend starts directly as the unprivileged image account"
+  assert_podman_args_contain "$CASE_LOG" \
     ':/home/workspace' \
     "podman backend mounts the workspace"
   assert_podman_args_contain "$CASE_LOG" \
@@ -1722,6 +1748,24 @@ test_podman_backend_runs_container_with_keep_id() {
   assert_podman_args_contain "$CASE_LOG" \
     'casual-capsule:local claude' \
     "podman backend passes the command after the image"
+}
+
+# Verify local podman sees a nested Capsule path, not its outer Docker path.
+test_nested_capsule_podman_uses_local_workdir() {
+  local nested_dir="/home/workspace/project/subdir"
+  setup_mock_case podman-nested-workdir
+
+  CAPSULE_RUNTIME=podman \
+    CAPSULE_WORKDIR="$nested_dir" \
+    CAPSULE_HOST_WORKDIR="/host/workspace" \
+    run_capsule "$CASE_BIN" "$CASE_LOG" true
+
+  assert_podman_args_contain "$CASE_LOG" \
+    "--volume ${nested_dir}:/home/workspace" \
+    "nested podman mounts the workspace path visible inside its Capsule"
+  assert_podman_args_lack "$CASE_LOG" \
+    '/host/workspace/project/subdir:/home/workspace' \
+    "nested podman does not mount the outer Docker daemon path"
 }
 
 test_podman_inner_volume_is_per_workspace() {
@@ -2225,15 +2269,18 @@ test_entrypoint_non_root_path_execs_the_command() {
   local dir="$TEST_TMPDIR/entrypoint-nonroot"
   mkdir -p "$dir"
 
-  if "$ENTRYPOINT_PATH" printf 'ENTRYPOINT_EXEC_OK\n' \
+  # shellcheck disable=SC2016
+  if env -u HOME -u USER -u LOGNAME \
+    "$ENTRYPOINT_PATH" bash -c \
+    'printf "ENTRYPOINT_EXEC_OK %s %s %s\n" "$HOME" "$USER" "$LOGNAME"' \
     >"$dir/out" 2>"$dir/err"; then
     pass "the entrypoint's non-root path runs the command"
   else
     fail "the entrypoint's non-root path runs the command"
   fi
   assert_file_contains "$dir/out" \
-    'ENTRYPOINT_EXEC_OK' \
-    "the command's own output reaches the caller"
+    'ENTRYPOINT_EXEC_OK /home/user user user' \
+    "the non-root command receives the Capsule user environment"
 }
 
 # shellcheck disable=SC2016
@@ -2271,9 +2318,10 @@ test_entrypoint_non_root_contract() {
     "entrypoint refreshes gh credentials on both paths"
   assert_file_contains "$ENTRYPOINT_PATH" \
     'if [ "$(id -u)" != "0" ]; then
+  set_user_environment
   refresh_gh_auth
   exec "$@"' \
-    "the non-root path authenticates before exec, as podman starts it"
+    "the non-root path initializes and authenticates before podman exec"
 }
 
 main() {
@@ -2348,6 +2396,7 @@ main() {
   test_macos_staff_gid_override
   test_default_gid_when_detection_fails
   test_podman_backend_runs_container_with_keep_id
+  test_nested_capsule_podman_uses_local_workdir
   test_podman_inner_volume_is_per_workspace
   test_podman_backend_translates_publish_and_volume
   test_podman_backend_mounts_the_token_secret

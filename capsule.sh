@@ -911,6 +911,16 @@ podman_image_name() {
   printf '%s\n' "${CAPSULE_IMAGE:-$DEFAULT_PODMAN_IMAGE}"
 }
 
+# Use the current container path when a nested Capsule selects local podman.
+# CAPSULE_HOST_WORKDIR names the outer Docker daemon's filesystem, which the
+# podman process inside this Capsule cannot see or bind-mount.
+configure_nested_podman_workdir() {
+  if [[ "$IN_NESTED_CAPSULE" -eq 1 ]]; then
+    CAPSULE_HOST_WORKDIR="$CAPSULE_WORKDIR"
+    export CAPSULE_HOST_WORKDIR
+  fi
+}
+
 # Reduce a path to a short, stable, filesystem-safe token.
 path_token() {
   local path="$1"
@@ -1098,6 +1108,7 @@ build_podman_run_args() {
     --privileged
     --security-opt label=disable
     --device /dev/fuse
+    --user user
     --userns "keep-id:uid=${CAPSULE_UID},gid=${CAPSULE_GID}"
     --workdir "$CAPSULE_CONTAINER_WORKDIR"
     --volume "${CAPSULE_HOST_WORKDIR}:${CAPSULE_CONTAINER_WORKDIR}"
@@ -1132,6 +1143,7 @@ run_podman_backend() {
   local mise_version=""
   local exit_code=0
 
+  configure_nested_podman_workdir
   PODMAN_CONTAINER_NAME="$(podman_container_name)"
   configure_podman_secret
   trap cleanup_podman_state EXIT INT TERM

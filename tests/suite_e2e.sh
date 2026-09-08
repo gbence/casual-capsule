@@ -166,7 +166,10 @@ test_podman_backend_end_to_end() {
     return
   fi
 
-  cp "$EXAMPLE_PROJECT_DIR/check-env.sh" "$workspace/"
+  cp \
+    "$EXAMPLE_PROJECT_DIR/check-env.sh" \
+    "$EXAMPLE_PROJECT_DIR/fixture.txt" \
+    "$workspace/"
   printf '%s\n' "$workspace" >"$config_file"
 
   # The inner engine has to answer, and the workspace has to be writable as
