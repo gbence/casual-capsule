@@ -38,6 +38,7 @@ common developer tools.
   - [Environment variables](#environment-variables)
 - [Run checks and tests](#-run-checks-and-tests)
 - [Included agent tooling](#-included-agent-tooling)
+  - [Updating the pinned tool versions](#updating-the-pinned-tool-versions)
 - [Security Note](#-security-note)
 - [License](#-license)
 
@@ -564,6 +565,11 @@ Options:
 *   `--no-cache`: Pass `--no-cache` to the build commands triggered by
     `--build` or `--build-custom`.
 
+*   `--update-tools`: Re-resolve every tool in `docker/mise/mise.toml` to its
+    newest version, rewrite `docker/mise/mise.lock`, and exit without starting
+    a shell. Review and commit the diff, then rebuild with `--build`. Cannot be
+    combined with `--build` or `--build-custom`, and takes no command.
+
 *   `-h`, `--help`: Show usage message.
 
 *   `--`: Stop launcher option parsing; pass remaining arguments to
@@ -674,9 +680,13 @@ When one of these tools is missing, it prints a warning and skips that linter.
 ## 🤖 Included agent tooling
 
 The image includes utilities commonly used by coding agents, installed via
-`mise` (configured by the `MISE_SYSTEM_TOOLS` Dockerfile ARG). Set
-`MISE_SYSTEM_TOOLS` in the build environment to override the default tool list
-when building through Compose:
+`mise` from `docker/mise/mise.toml`, which the build copies to
+`/etc/mise/config.toml`. The adjacent `docker/mise/mise.lock` pins the exact
+version and checksum of every tool, so a build is reproducible and a tool bump
+is a reviewable diff.
+
+Set `MISE_SYSTEM_TOOLS` in the build environment to replace the locked tool set
+with an unlocked, freshly resolved one for an ad-hoc build through Compose:
 
 ```bash
 MISE_SYSTEM_TOOLS="bat fd jq ripgrep uv" docker compose build cli
@@ -712,6 +722,33 @@ capsule bash -lc "rg --version && fd --version && jq --version && \
   bat --version && eza --version && shellcheck --version && \
   gh --version && tree --version && python --version"
 ```
+
+### Updating the pinned tool versions
+
+Tool versions only change when `docker/mise/mise.lock` changes, so an image
+never drifts on its own and never silently picks up a new agent release.
+Refresh the lockfile, review it, then rebuild:
+
+```bash
+capsule --update-tools
+git diff docker/mise/mise.lock
+capsule --build
+```
+
+`--update-tools` runs `mise lock --bump` inside the capsule image against the
+mounted repository, so the host needs no `mise` of its own.
+
+By default `mise` withholds brand-new releases for a short while as
+supply-chain protection. That delay leaves fast-moving agent CLIs one or two
+versions behind, so `docker/mise/mise.toml` exempts exactly those from it via
+`minimum_release_age_excludes`:
+
+```toml
+minimum_release_age_excludes = ["antigravity-cli", "claude", "codex", "rtk"]
+```
+
+Every other tool keeps the default delay. Add a tool to that list only when
+being a release or two behind is a real problem for it.
 
 ## 🔐 Security Note
 

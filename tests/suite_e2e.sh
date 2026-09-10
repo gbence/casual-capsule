@@ -142,6 +142,69 @@ test_example_project_end_to_end() {
   rm -f "$token_file"
 }
 
+# Verify that the built image carries exactly the tool versions pinned in
+# docker/mise/mise.lock. This is the regression guard against images silently
+# drifting behind the newest agent CLI releases.
+test_locked_tool_versions_end_to_end() {
+  local tdir="$TEST_TMPDIR/locked-tools-e2e"
+  local config_file="$tdir/config"
+  local check_cmd=""
+  mkdir -p "$tdir"
+  log_message "Starting test_locked_tool_versions_end_to_end"
+
+  if ! require_docker_prereqs "locked tool versions e2e"; then
+    return
+  fi
+
+  printf '%s\n' "$ROOT_DIR" >"$config_file"
+
+  check_cmd="$(cat <<'CHECK'
+set -eu
+cmp -s /etc/mise/mise.lock docker/mise/mise.lock || {
+  printf 'image lockfile differs from repository lockfile\n' >&2
+  exit 1
+}
+locked_version() {
+  awk -v tool="$1" '
+    $0 == "[[tools." tool "]]" { found = 1; next }
+    found && /^version = / { gsub(/"/, "", $3); print $3; exit }
+  ' /etc/mise/mise.lock
+}
+for tool in claude codex; do
+  want="$(locked_version "$tool")"
+  test -n "$want" || {
+    printf 'no locked version for %s\n' "$tool" >&2
+    exit 1
+  }
+  got="$("$tool" --version 2>&1 | head -n1)"
+  case "$got" in
+    *"$want"*) ;;
+    *)
+      printf 'version drift: %s locked=%s reported=%s\n' \
+        "$tool" "$want" "$got" >&2
+      exit 1
+      ;;
+  esac
+done
+printf 'locked tool versions ok\n'
+CHECK
+)"
+
+  log_message "Running capsule.sh --build in the capsule repository"
+  # shellcheck disable=SC2016
+  if run_logged bash -c '
+    unset CAPSULE_WORKDIR
+    cd "$1" &&
+      CAPSULE_CONFIG="$2" "$3" --build bash -lc "$4"
+  ' bash "$ROOT_DIR" "$config_file" "$SCRIPT_PATH" "$check_cmd"; then
+    assert_file_contains "$LOG_FILE" \
+      "locked tool versions ok" \
+      "image installs exactly the versions pinned in mise.lock"
+  else
+    fail "image installs exactly the versions pinned in mise.lock"
+  fi
+}
+
 # Verify that capsule.sh can run with a custom compose override end to end.
 test_custom_compose_end_to_end() {
   local tdir="$TEST_TMPDIR/custom-compose-e2e"
@@ -219,6 +282,7 @@ main() {
   printf 'E2E log: %s\n' "$LOG_FILE"
   log_message "Suite started"
   test_example_project_end_to_end
+  test_locked_tool_versions_end_to_end
   test_custom_compose_end_to_end
   test_custom_compose_build_custom_end_to_end
 

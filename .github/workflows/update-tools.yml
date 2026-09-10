@@ -1,0 +1,54 @@
+name: update-tools
+
+# Refresh the pinned agent and tool versions in docker/mise/mise.lock and
+# open a pull request when anything moved. The lockfile is the only thing
+# that changes tool versions in an image, so this keeps the drift visible
+# and reviewable instead of silent.
+on:
+  schedule:
+    # Mondays, 05:00 UTC.
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    name: bump
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install mise
+        uses: jdx/mise-action@v3
+        with:
+          install: false
+
+      - name: Refresh lockfile
+        env:
+          MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: docker/mise
+        run: |
+          mise trust mise.toml
+          mise lock --bump
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          add-paths: docker/mise/mise.lock
+          branch: chore/update-tools
+          delete-branch: true
+          commit-message: |
+            chore(mise): Bump pinned tool versions
+
+            * Refresh docker/mise/mise.lock so the image picks up the
+              newest agent and tool releases on the next build.
+          title: 'chore(mise): Bump pinned tool versions'
+          body: |
+            Automated `mise lock --bump` refresh of `docker/mise/mise.lock`.
+
+            Review the version changes, then merge and rebuild with
+            `capsule --build`.

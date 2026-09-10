@@ -8,6 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)"
 readonly SCRIPT_DIR
 readonly CAPSULE_CONTAINER_WORKDIR="/home/workspace"
+readonly CAPSULE_REPO_MOUNT="/mnt/capsule"
 readonly DEFAULT_CAPSULE_UID="1000"
 readonly DEFAULT_CAPSULE_GID="100"
 readonly DEFAULT_DOCKER_GID="999"
@@ -18,6 +19,7 @@ BUILD_MODE=""
 BUILD_MODE_FLAG=""
 NO_CACHE=0
 PRIVATE_HOME=0
+UPDATE_TOOLS=0
 RUNTIME_ARGS=()
 RUNTIME_OPTS=()
 CAPSULE_CUSTOM_COMPOSE="${CAPSULE_CUSTOM_COMPOSE:-}"
@@ -214,6 +216,7 @@ initialize_runtime_state() {
   BUILD_MODE_FLAG=""
   NO_CACHE=0
   PRIVATE_HOME=0
+  UPDATE_TOOLS=0
   RUNTIME_ARGS=()
   RUNTIME_OPTS=()
   CAPSULE_CUSTOM_COMPOSE="${CAPSULE_CUSTOM_COMPOSE:-}"
@@ -239,6 +242,9 @@ Options:
   -v, --volume HOST:CONTAINER[:OPTIONS]  Bind-mount a host path. Repeatable.
       --build-custom  Run the custom compose build before runtime.
       --no-cache  Pass --no-cache to build commands run by this script.
+      --update-tools  Refresh docker/mise/mise.lock to the newest tool
+                      versions, then exit. Review and commit the diff,
+                      then rebuild with --build to pick them up.
   -h, --help   Show this help message.
 
 Environment:
@@ -381,6 +387,10 @@ parse_args() {
         ;;
       --no-cache)
         NO_CACHE=1
+        shift
+        ;;
+      --update-tools)
+        UPDATE_TOOLS=1
         shift
         ;;
       -p|--private-home)
@@ -785,6 +795,67 @@ run_requested_builds() {
   fi
 }
 
+# Resolve SCRIPT_DIR to a path the Docker daemon can bind-mount. Mirrors
+# initialize_workdir_state, which maps the workspace rather than this script.
+resolve_script_host_dir() {
+  local mapped=""
+
+  if [[ "$SCRIPT_DIR" == "$CAPSULE_CONTAINER_WORKDIR" ]]; then
+    printf '%s\n' "${CAPSULE_HOST_WORKDIR:-$SCRIPT_DIR}"
+    return
+  fi
+
+  if [[ "$SCRIPT_DIR" == "$CAPSULE_CONTAINER_WORKDIR"/* ]]; then
+    printf '%s%s\n' \
+      "${CAPSULE_HOST_WORKDIR:-$CAPSULE_CONTAINER_WORKDIR}" \
+      "${SCRIPT_DIR#"$CAPSULE_CONTAINER_WORKDIR"}"
+    return
+  fi
+
+  if mapped="$(resolve_host_path_map "$SCRIPT_DIR")"; then
+    printf '%s\n' "$mapped"
+    return
+  fi
+
+  printf '%s\n' "$SCRIPT_DIR"
+}
+
+# Turn the runtime invocation into a lockfile refresh inside the container.
+# mise resolves every tool again and rewrites docker/mise/mise.lock in place,
+# so the host needs no mise of its own.
+configure_update_tools() {
+  local script_host_dir=""
+  local update_cmd=""
+
+  if [[ "$BUILD_MODE" != "none" ]]; then
+    die "--update-tools cannot be combined with ${BUILD_MODE_FLAG}"
+  fi
+
+  if [[ "${#RUNTIME_ARGS[@]}" -gt 0 ]]; then
+    die '--update-tools does not take a command'
+  fi
+
+  if [[ ! -f "$SCRIPT_DIR/docker/mise/mise.toml" ]]; then
+    die "missing $SCRIPT_DIR/docker/mise/mise.toml"
+  fi
+
+  script_host_dir="$(resolve_script_host_dir)"
+  RUNTIME_OPTS+=(--volume "${script_host_dir}:${CAPSULE_REPO_MOUNT}")
+
+  # The single quotes are deliberate: MISE_GITHUB_TOKEN and GITHUB_API_TOKEN
+  # are expanded by the container shell, not by this one.
+  # shellcheck disable=SC2016
+  update_cmd="$(
+    printf '%s\n' \
+      'set -eu' \
+      "cd ${CAPSULE_REPO_MOUNT}/docker/mise" \
+      'export MISE_GITHUB_TOKEN="${GITHUB_API_TOKEN:-}"' \
+      'mise trust mise.toml' \
+      'mise lock --bump'
+  )"
+  RUNTIME_ARGS=(bash -c "$update_cmd")
+}
+
 # Exec the runtime container, preserving any user-supplied command.
 run_capsule_runtime() {
   exec "${COMPOSE_CMD[@]}" run --rm \
@@ -811,6 +882,10 @@ main() {
 
   configure_docker_gid
   initialize_compose_commands
+
+  if [[ "$UPDATE_TOOLS" -eq 1 ]]; then
+    configure_update_tools
+  fi
 
   if [[ "$BUILD_MODE" != "none" ]]; then
     mise_version="$(fetch_mise_version)"

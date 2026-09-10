@@ -1,0 +1,30 @@
+# System-wide mise configuration baked into the capsule image.
+#
+# Installed to /etc/mise/config.toml; the adjacent mise.lock pins the
+# exact versions and checksums used by every build.
+#
+# Refresh with: ./capsule.sh --update-tools
+
+[settings]
+# The image only ever runs Linux; skip the other lock platforms.
+lockfile_platforms = ["linux-x64", "linux-arm64"]
+
+# mise delays brand-new releases as supply-chain protection, which
+# leaves fast-moving agent CLIs one or two versions behind. Exempt
+# just those; every other tool keeps the default delay.
+minimum_release_age_excludes = ["antigravity-cli", "claude", "codex", "rtk"]
+
+[tools]
+antigravity-cli = "latest"
+bat = "latest"
+claude = "latest"
+codex = "latest"
+eza = "latest"
+fd = "latest"
+gh = "latest"
+jq = "latest"
+node = "latest"
+ripgrep = "latest"
+rtk = "latest"
+usage = "latest"
+uv = "latest"

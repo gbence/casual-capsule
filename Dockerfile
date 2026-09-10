@@ -42,14 +42,31 @@ WORKDIR /home/workspace
 # Install mise
 ARG MISE_VERSION=""
 ENV MISE_INSTALL_PATH="/usr/local/bin/mise"
-RUN curl -fsSL https://mise.run | sh
+# Create /etc/mise up front: a COPY that creates it applies its --chmod to
+# the new directory too, leaving it untraversable for the non-root user.
+RUN curl -fsSL https://mise.run | sh && \
+    mkdir -p /etc/mise && chmod 755 /etc/mise
 
-# Install system AI agents and tools with mise
-ARG MISE_SYSTEM_TOOLS="antigravity-cli bat codex claude eza fd \
-        gh jq node ripgrep usage uv rtk"
+# Install system AI agents and tools with mise.
+#
+# The committed lockfile pins the exact version and checksum of every
+# tool, so a build is reproducible and a tool bump is a reviewable
+# diff. Refresh it with "./capsule.sh --update-tools".
+#
+# Setting MISE_SYSTEM_TOOLS replaces the locked tool set with an
+# unlocked, freshly resolved one for ad-hoc builds.
+COPY --chmod=644 docker/mise/mise.toml /etc/mise/config.toml
+COPY --chmod=644 docker/mise/mise.lock /etc/mise/mise.lock
+ARG MISE_SYSTEM_TOOLS=""
 RUN --mount=type=secret,id=github_api_token,env=GITHUB_API_TOKEN,required=true \
-    mise install --system ${MISE_SYSTEM_TOOLS} && \
-    mise use --path /etc/mise/config.toml --pin ${MISE_SYSTEM_TOOLS}
+    if [ -n "${MISE_SYSTEM_TOOLS}" ]; then \
+      rm -f /etc/mise/mise.lock && \
+      printf '[tools]\n' > /etc/mise/config.toml && \
+      mise install --system ${MISE_SYSTEM_TOOLS} && \
+      mise use --path /etc/mise/config.toml --pin ${MISE_SYSTEM_TOOLS}; \
+    else \
+      mise install --system; \
+    fi
 
 # Activate mise in interactive shells
 COPY --chmod=644 docker/mise.sh /etc/profile.d/

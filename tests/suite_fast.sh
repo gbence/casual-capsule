@@ -17,6 +17,8 @@ CHECK_ALL_PATH="$ROOT_DIR/tests/check_all.sh"
 COMPOSE_PATH="$ROOT_DIR/compose.yml"
 DOCKERFILE_PATH="$ROOT_DIR/Dockerfile"
 ENTRYPOINT_PATH="$ROOT_DIR/docker/entrypoint.sh"
+MISE_CONFIG_PATH="$ROOT_DIR/docker/mise/mise.toml"
+MISE_LOCK_PATH="$ROOT_DIR/docker/mise/mise.lock"
 EXAMPLE_PROJECT_DIR="$ROOT_DIR/tests/fixtures/example-project"
 
 unset CAPSULE_CUSTOM_COMPOSE
@@ -279,6 +281,46 @@ test_dockerfile_tooling_contract() {
   assert_file_not_contains "$DOCKERFILE_PATH" \
     "mise use --global \${MISE_SYSTEM_TOOLS}" \
     "image no longer activates system tools in the user home"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'COPY --chmod=644 docker/mise/mise.toml /etc/mise/config.toml' \
+    "image installs the committed mise system config"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'COPY --chmod=644 docker/mise/mise.lock /etc/mise/mise.lock' \
+    "image installs the committed mise lockfile"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'ARG MISE_SYSTEM_TOOLS=""' \
+    "image treats MISE_SYSTEM_TOOLS as an opt-in override"
+}
+
+test_mise_lockfile_contract() {
+  local tool=""
+
+  assert_file_contains "$MISE_CONFIG_PATH" \
+    'minimum_release_age_excludes' \
+    "mise config exempts fast-moving agent CLIs from the release delay"
+  assert_file_contains "$MISE_CONFIG_PATH" \
+    'lockfile_platforms = ["linux-x64", "linux-arm64"]' \
+    "mise config locks only the platforms the image runs on"
+
+  for tool in antigravity-cli claude codex rtk; do
+    assert_file_contains "$MISE_CONFIG_PATH" \
+      "\"$tool\"" \
+      "release-age exemption covers $tool"
+  done
+
+  for tool in antigravity-cli bat claude codex eza fd gh jq node \
+      ripgrep rtk usage uv; do
+    assert_file_contains "$MISE_LOCK_PATH" \
+      "[[tools.$tool]]" \
+      "lockfile pins $tool"
+  done
+
+  assert_file_contains "$MISE_LOCK_PATH" \
+    'platforms.linux-x64' \
+    "lockfile records linux-x64 checksums"
+  assert_file_not_contains "$MISE_LOCK_PATH" \
+    'platforms.macos-arm64' \
+    "lockfile skips platforms the image never runs on"
 }
 
 test_dockerfile_uid_gid_contract() {
@@ -632,6 +674,90 @@ test_build_and_build_custom_flags_conflict() {
   assert_file_contains "$err_file" \
     "--build-custom cannot be combined with --build" \
     "build flag conflict reports a clear error"
+}
+
+test_update_tools_flag_runs_lock_refresh() {
+  local tdir="$TEST_TMPDIR/update-tools"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" --update-tools
+
+  assert_file_contains "$log_file" \
+    "--volume $ROOT_DIR:/mnt/capsule" \
+    "update-tools mounts the capsule repository for the refresh"
+  assert_file_contains "$log_file" \
+    'cd /mnt/capsule/docker/mise' \
+    "update-tools refreshes the committed lockfile in place"
+  assert_file_contains "$log_file" \
+    'mise trust mise.toml' \
+    "update-tools trusts the config before locking"
+  assert_file_contains "$log_file" \
+    'mise lock --bump' \
+    "update-tools re-resolves every tool to its newest version"
+  assert_equals \
+    "1" \
+    "$(grep -cF 'ARGS=' "$log_file")" \
+    "update-tools runs exactly one compose command"
+}
+
+test_update_tools_flag_rejects_build_mode() {
+  local tdir="$TEST_TMPDIR/update-tools-build"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  local err_file="$tdir/err"
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  if DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" \
+    --build --update-tools 2>"$err_file"; then
+    fail "update-tools rejects a build in the same run"
+  else
+    pass "update-tools rejects a build in the same run"
+  fi
+  assert_file_contains "$err_file" \
+    "--update-tools cannot be combined with --build" \
+    "update-tools build conflict reports a clear error"
+}
+
+test_update_tools_flag_rejects_runtime_command() {
+  local tdir="$TEST_TMPDIR/update-tools-cmd"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  local err_file="$tdir/err"
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  if DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" \
+    --update-tools true 2>"$err_file"; then
+    fail "update-tools rejects a trailing command"
+  else
+    pass "update-tools rejects a trailing command"
+  fi
+  assert_file_contains "$err_file" \
+    "--update-tools does not take a command" \
+    "update-tools command rejection reports a clear error"
+}
+
+test_update_tools_flag_accepts_empty_argument() {
+  local tdir="$TEST_TMPDIR/update-tools-empty"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  local err_file="$tdir/err"
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+
+  if DOCKER_GID=1111 run_capsule "$mock_bin" "$log_file" \
+    --update-tools "" 2>"$err_file"; then
+    fail "update-tools rejects an empty trailing argument"
+  else
+    pass "update-tools rejects an empty trailing argument"
+  fi
+  assert_file_contains "$err_file" \
+    "--update-tools does not take a command" \
+    "empty trailing argument is still a command"
 }
 
 test_private_home_flag_uses_user_home_bind_mount() {
@@ -1619,6 +1745,11 @@ main() {
   test_build_flag_without_runtime_args
   test_build_custom_flag_requires_custom_compose
   test_build_and_build_custom_flags_conflict
+  test_mise_lockfile_contract
+  test_update_tools_flag_runs_lock_refresh
+  test_update_tools_flag_rejects_build_mode
+  test_update_tools_flag_rejects_runtime_command
+  test_update_tools_flag_accepts_empty_argument
   test_private_home_flag_uses_user_home_bind_mount
   test_private_home_uses_host_path_map_for_home_dir
   test_private_home_requires_home_mapping_with_host_path_map
