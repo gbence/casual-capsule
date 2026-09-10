@@ -30,6 +30,9 @@ common developer tools.
   - [Custom Capsule images](#custom-capsule-images)
   - [Updating your GitHub token](#updating-your-github-token)
   - [Graphify knowledge graphs](#graphify-knowledge-graphs)
+    - [Pinned version](#pinned-version)
+    - [What the graph does not contain](#what-the-graph-does-not-contain)
+    - [Keeping the graph honest](#keeping-the-graph-honest)
   - [Port publishing](#port-publishing)
   - [Runtime volume mounts](#runtime-volume-mounts)
   - [Bind mounts in containers started in a Capsule](#bind-mounts-in-containers-started-in-a-capsule)
@@ -486,21 +489,55 @@ Generated data is stored under `graphify-out/`, which Capsule git-ignores.
 Project-specific exclusions belong in `.graphifyignore` using gitignore
 syntax.
 
-Every `capsule --build` checks PyPI for the latest stable Graphify release and
-passes that exact version into the image build. If the lookup fails, the
-Dockerfile's pinned default is used. Because the resolved version is a build
-argument, Docker reuses the Graphify layer until the version changes.
+#### Pinned version
 
-Set `GRAPHIFY_VERSION` to use a specific release or to make an offline build
-fully reproducible:
+`docker/graphify-version` holds the Graphify release the image installs. It
+is committed, so the version only ever moves in a reviewable diff:
+
+```bash
+capsule --update-graphify        # rewrite the pin with the newest release
+git diff docker/graphify-version # review
+capsule --build                  # install it
+```
+
+Builds never resolve the version themselves. Graphify's vendor skill is
+agent-facing text that tells agents when and how to use the tool, so an
+unreviewed upgrade changes agent behavior with no diff to inspect. Because
+the pin is a file the image copies, Docker reuses the Graphify layer until
+the pin changes, and offline builds stay reproducible.
+
+Set `GRAPHIFY_VERSION` to override the pin for a single throwaway build:
 
 ```bash
 GRAPHIFY_VERSION=0.9.55 capsule --build
 ```
 
-A direct `docker compose build cli` uses the Dockerfile default unless the
-same environment variable is set. After changing the Graphify version, the
-next container start automatically refreshes its installed agent skills.
+After the version changes, the next container start refreshes the installed
+agent skills automatically.
+
+#### What the graph does not contain
+
+Graphify collects files by extension, so **extensionless files never enter
+the graph**. In this repository that means `Dockerfile`, `LICENSE`, `NOTICE`,
+and every dotfile such as `.dockerignore` and `.graphifyignore`. There is no
+option to add them. Read those files directly; do not rely on graph answers
+about the image build.
+
+#### Keeping the graph honest
+
+A graph records the commit it was built from. Rebases and other history
+rewrites turn that into an unreachable hash while queries keep answering from
+the stale graph, so rebuild it after rewriting history:
+
+```bash
+capsule bash -lc "graphify . --update"
+```
+
+Capsule checks this for you. `docker/graphify-doctor.sh` runs at container
+start and warns when Graphify is missing from the image, when an installed
+skill was built for a different release, or when the graph's commit is no
+longer reachable from `HEAD`. It only reports, never blocks; set
+`CAPSULE_SKIP_GRAPHIFY_DOCTOR=1` to silence it.
 
 ### Port publishing
 
@@ -607,6 +644,11 @@ Options:
 *   `--no-cache`: Pass `--no-cache` to the build commands triggered by
     `--build` or `--build-custom`.
 
+*   `--update-graphify`: Rewrite `docker/graphify-version` with the newest
+    release from PyPI, then exit without starting a container. Review and
+    commit the diff, then rebuild with `--build`. Cannot be combined with
+    `--build` or `--build-custom`, and takes no command.
+
 *   `-h`, `--help`: Show usage message.
 
 *   `--`: Stop launcher option parsing; pass remaining arguments to
@@ -668,6 +710,9 @@ Options:
 
 *   `CAPSULE_SKIP_SKILL_SYNC`: Skip Graphify's agent-skill refresh.
 
+*   `CAPSULE_SKIP_GRAPHIFY_DOCTOR`: Skip the Graphify drift check at
+    container start.
+
     Default: empty. Set to `1` to skip the refresh.
 
 *   `CAPSULE_CONFIG`: Path to the file that contains the approved directories.
@@ -682,7 +727,7 @@ Options:
 *   `GITHUB_API_TOKEN`: Passed as a build secret for `gh` auth and for `mise`
     tool downloads from GitHub.
 
-*   `GRAPHIFY_VERSION`: Override the Graphify package version used by builds.
+*   `GRAPHIFY_VERSION`: Override the committed Graphify pin for one build.
 
     Default: latest stable release for `capsule --build`; otherwise the
     version pinned in the Dockerfile.
@@ -756,8 +801,8 @@ Python tooling (installed via `uv`; binaries available on `PATH` via
   `3.14`).
 - `ruff`: Fast Python linter and formatter.
 - `ty`: Python type checker.
-- `graphify`: Local knowledge-graph CLI and agent skill (version set by the
-  `GRAPHIFY_VERSION` build argument).
+- `graphify`: Local knowledge-graph CLI and agent skill (version pinned in
+  `docker/graphify-version`).
 
 Verify inside capsule:
 

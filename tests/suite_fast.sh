@@ -19,6 +19,8 @@ DOCKERFILE_PATH="$ROOT_DIR/Dockerfile"
 ENTRYPOINT_PATH="$ROOT_DIR/docker/entrypoint.sh"
 SYNC_SKILLS_PATH="$ROOT_DIR/docker/sync-skills.sh"
 MAINTAIN_GRAPHIFY_PATH="$ROOT_DIR/skills/maintain-graphify/SKILL.md"
+GRAPHIFY_VERSION_PATH="$ROOT_DIR/docker/graphify-version"
+GRAPHIFY_DOCTOR_PATH="$ROOT_DIR/docker/graphify-doctor.sh"
 EXAMPLE_PROJECT_DIR="$ROOT_DIR/tests/fixtures/example-project"
 
 unset CAPSULE_CUSTOM_COMPOSE
@@ -308,14 +310,21 @@ test_dockerfile_tooling_contract() {
     "mise use --global \${MISE_SYSTEM_TOOLS}" \
     "image no longer activates system tools in the user home"
   assert_file_contains "$DOCKERFILE_PATH" \
-    'ARG GRAPHIFY_VERSION=0.9.55' \
-    "image pins a fallback Graphify version"
+    'ARG GRAPHIFY_VERSION=""' \
+    "image treats GRAPHIFY_VERSION as an opt-in override"
   assert_file_contains "$DOCKERFILE_PATH" \
-    "uv tool install \"graphifyy==\${GRAPHIFY_VERSION}\"" \
-    "image installs the selected Graphify release with uv"
+    'COPY --chmod=644 docker/graphify-version' \
+    "image installs the committed Graphify pin"
+  # shellcheck disable=SC2016  # literal Dockerfile text, not an expansion
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'uv tool install "graphifyy==${version}"' \
+    "image installs the pinned Graphify release with uv"
   assert_file_contains "$DOCKERFILE_PATH" \
     'COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/' \
     "image installs the Graphify skill-sync helper"
+  assert_file_contains "$DOCKERFILE_PATH" \
+    'COPY --chmod=755 docker/graphify-doctor.sh /usr/local/bin/' \
+    "image installs the Graphify drift check"
   assert_file_contains "$DOCKERFILE_PATH" \
     'skills/maintain-graphify' \
     "image packages the Capsule Graphify lifecycle skill"
@@ -424,6 +433,90 @@ test_sync_skills_contract() {
   assert_file_contains "$SYNC_SKILLS_PATH" \
     "rm -rf \"\$target/agents\"" \
     "skill sync keeps OpenAI metadata Codex-only"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'sync_capsule_skill || sync_ok=0' \
+    "skill sync copies the lifecycle skill before checking graphify"
+  # shellcheck disable=SC2016  # literal script text, not an expansion
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'if [[ "$release" == "absent" ]]; then' \
+    "skill sync only gates the vendor refresh on graphify"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    'graphify is not installed in this image' \
+    "skill sync reports a missing graphify binary"
+  assert_file_contains "$SYNC_SKILLS_PATH" \
+    "printf 'absent" \
+    "skill sync stamps the absent binary so it resyncs later"
+}
+
+# Verify that Capsule's own lifecycle skill syncs without Graphify present,
+# and that a missing binary is reported rather than silently skipped.
+test_sync_skills_runs_without_graphify() {
+  local tdir="$TEST_TMPDIR/sync-no-graphify"
+  local home_dir="$tdir/home"
+  local err_file="$tdir/err"
+  local skill_src="$tdir/capsule-skills/maintain-graphify"
+  mkdir -p "$home_dir" "$skill_src"
+  printf 'lifecycle skill\n' >"$skill_src/SKILL.md"
+
+  # Run with an empty PATH entry first so "graphify" cannot resolve.
+  if HOME="$home_dir" PATH="$tdir/bin:/usr/bin:/bin" \
+       bash -c '
+         sed "s#/usr/local/share/capsule-skills/maintain-graphify#'"$skill_src"'#" \
+           "$1" >"$2/sync.sh"
+         bash "$2/sync.sh"
+       ' bash "$SYNC_SKILLS_PATH" "$tdir" 2>"$err_file"; then
+    pass "skill sync succeeds without graphify installed"
+  else
+    fail "skill sync succeeds without graphify installed"
+  fi
+
+  if [[ -f "$home_dir/.claude/skills/maintain-graphify/SKILL.md" ]]; then
+    pass "lifecycle skill reaches Claude without graphify"
+  else
+    fail "lifecycle skill reaches Claude without graphify"
+  fi
+  if [[ -f "$home_dir/.codex/skills/maintain-graphify/SKILL.md" ]]; then
+    pass "lifecycle skill reaches Codex without graphify"
+  else
+    fail "lifecycle skill reaches Codex without graphify"
+  fi
+  assert_file_contains "$err_file" \
+    'graphify is not installed' \
+    "missing graphify is reported on stderr"
+}
+
+# Verify the drift check reports version and graph-provenance mismatches.
+test_graphify_doctor_contract() {
+  local tdir="$TEST_TMPDIR/graphify-doctor"
+  local out_file="$tdir/out"
+  mkdir -p "$tdir"
+
+  if ! bash -n "$GRAPHIFY_DOCTOR_PATH"; then
+    fail "graphify-doctor.sh has valid shell syntax"
+  else
+    pass "graphify-doctor.sh has valid shell syntax"
+  fi
+  assert_file_contains "$GRAPHIFY_DOCTOR_PATH" \
+    'CAPSULE_SKIP_GRAPHIFY_DOCTOR' \
+    "drift check honors its opt-out"
+  assert_file_contains "$GRAPHIFY_DOCTOR_PATH" \
+    'built_at_commit' \
+    "drift check inspects the graph build commit"
+  assert_file_contains "$GRAPHIFY_DOCTOR_PATH" \
+    'merge-base --is-ancestor' \
+    "drift check detects a rewritten history"
+  assert_file_contains "$GRAPHIFY_DOCTOR_PATH" \
+    'exit 0' \
+    "drift check never blocks startup"
+
+  if CAPSULE_SKIP_GRAPHIFY_DOCTOR=1 \
+       bash "$GRAPHIFY_DOCTOR_PATH" "$tdir" >"$out_file" 2>&1; then
+    pass "drift check exits cleanly when disabled"
+  else
+    fail "drift check exits cleanly when disabled"
+  fi
+  assert_equals "" "$(cat "$out_file")" \
+    "disabled drift check stays silent"
 }
 
 # Verify that the lifecycle skill is complete and keeps mutations explicit.
@@ -473,43 +566,153 @@ test_build_flag_runs_build_then_runtime() {
     "$(entry_from_log ARGS 2 "$log_file")" \
     "build flag still runs compose runtime"
   assert_equals \
-    "0.9.99" \
+    "" \
     "$(value_from_log ENV_GRAPHIFY_VERSION "$log_file")" \
-    "build flag exports the latest Graphify release"
+    "build leaves the committed Graphify pin in charge"
 }
 
-# Verify explicit and offline Graphify builds retain a pinned version path.
-test_graphify_version_resolution_fallbacks() {
-  local tdir="$TEST_TMPDIR/graphify-version"
+# Verify that the committed pin drives builds and only an explicit override
+# replaces it, so an upstream release never reaches agents unreviewed.
+test_graphify_pin_drives_builds() {
+  local tdir="$TEST_TMPDIR/graphify-pin"
   local mock_bin="$tdir/bin"
   local log_file="$tdir/log"
   local err_file="$tdir/err"
   mkdir -p "$tdir"
   make_mock_bin "$mock_bin"
 
-  GRAPHIFY_VERSION=0.9.54 MOCK_GRAPHIFY_FETCH_FAIL=1 DOCKER_GID=1111 \
-    run_capsule "$mock_bin" "$log_file" --build true 2>"$err_file"
-  assert_equals \
-    "0.9.54" \
-    "$(value_from_log ENV_GRAPHIFY_VERSION "$log_file")" \
-    "explicit Graphify version bypasses release discovery"
-  assert_file_not_contains "$err_file" \
-    'cannot fetch latest Graphify version' \
-    "explicit Graphify version needs no fallback warning"
+  assert_file_contains "$GRAPHIFY_VERSION_PATH" \
+    '.' \
+    "repository commits a Graphify pin"
+  if [[ "$(tr -d '[:space:]' <"$GRAPHIFY_VERSION_PATH")" \
+          =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    pass "committed Graphify pin is a concrete version"
+  else
+    fail "committed Graphify pin is a concrete version"
+  fi
 
-  : >"$log_file"
-  : >"$err_file"
-  MOCK_GRAPHIFY_FETCH_FAIL=1 DOCKER_GID=1111 \
+  MOCK_GRAPHIFY_VERSION=0.9.99 DOCKER_GID=1111 \
     run_capsule "$mock_bin" "$log_file" --build true 2>"$err_file"
   assert_equals \
     "" \
     "$(value_from_log ENV_GRAPHIFY_VERSION "$log_file")" \
-    "failed discovery leaves the Dockerfile fallback active"
-  assert_file_contains "$err_file" \
-    'cannot fetch latest Graphify version; using image default' \
-    "failed discovery reports the pinned fallback"
+    "a newer upstream release does not change the build"
+  assert_file_not_contains "$err_file" \
+    'cannot fetch latest Graphify version' \
+    "builds never reach for the package registry"
+
+  : >"$log_file"
+  GRAPHIFY_VERSION=0.9.54 DOCKER_GID=1111 \
+    run_capsule "$mock_bin" "$log_file" --build true
+  assert_equals \
+    "0.9.54" \
+    "$(value_from_log ENV_GRAPHIFY_VERSION "$log_file")" \
+    "explicit GRAPHIFY_VERSION overrides the pin for one build"
 }
 
+# Build a throwaway capsule tree so pin rewrites never touch the repository.
+make_capsule_copy() {
+  local dest="$1"
+  mkdir -p "$dest/docker"
+  cp "$SCRIPT_PATH" "$dest/capsule.sh"
+  cp "$GRAPHIFY_VERSION_PATH" "$dest/docker/graphify-version"
+}
+
+# Run a copied capsule.sh with the same mocks run_capsule uses.
+run_capsule_copy() {
+  local script="$1"
+  local mock_bin="$2"
+  local log_file="$3"
+  local cfg_file="${TEST_TMPDIR}/config"
+  shift 3
+  printf '%s\n' "${CAPSULE_WORKDIR:-$(pwd -P)}" >"${cfg_file}"
+  PATH="$mock_bin:$PATH" MOCK_LOG="$log_file" CAPSULE_CONFIG="$cfg_file" \
+    "$script" "$@"
+}
+
+# Verify that --update-graphify rewrites the pin and refuses ambiguous runs.
+test_update_graphify_flag() {
+  local tdir="$TEST_TMPDIR/update-graphify"
+  local repo="$tdir/repo"
+  local mock_bin="$tdir/bin"
+  local log_file="$tdir/log"
+  local out_file="$tdir/out"
+  local pin=""
+  mkdir -p "$tdir"
+  make_mock_bin "$mock_bin"
+  make_capsule_copy "$repo"
+  pin="$repo/docker/graphify-version"
+  printf '0.9.10\n' >"$pin"
+
+  MOCK_GRAPHIFY_VERSION=0.9.99 DOCKER_GID=1111 \
+    run_capsule_copy "$repo/capsule.sh" "$mock_bin" "$log_file" \
+      --update-graphify >"$out_file" 2>&1
+  assert_equals \
+    "0.9.99" \
+    "$(tr -d '[:space:]' <"$pin")" \
+    "update-graphify rewrites the committed pin"
+  assert_file_contains "$out_file" \
+    '0.9.10 -> 0.9.99' \
+    "update-graphify reports what moved"
+  assert_equals \
+    "0" \
+    "$(grep -cF 'ARGS=' "$log_file" 2>/dev/null || printf '0')" \
+    "update-graphify starts no container"
+
+  : >"$out_file"
+  MOCK_GRAPHIFY_VERSION=0.9.99 DOCKER_GID=1111 \
+    run_capsule_copy "$repo/capsule.sh" "$mock_bin" "$log_file" \
+      --update-graphify >"$out_file" 2>&1
+  assert_file_contains "$out_file" \
+    'already at 0.9.99' \
+    "update-graphify is a no-op when the pin is current"
+
+  : >"$out_file"
+  if MOCK_GRAPHIFY_FETCH_FAIL=1 DOCKER_GID=1111 \
+       run_capsule_copy "$repo/capsule.sh" "$mock_bin" "$log_file" \
+         --update-graphify >"$out_file" 2>&1; then
+    fail "update-graphify fails loudly when discovery fails"
+  else
+    pass "update-graphify fails loudly when discovery fails"
+  fi
+  assert_equals \
+    "0.9.99" \
+    "$(tr -d '[:space:]' <"$pin")" \
+    "a failed lookup leaves the pin untouched"
+
+  : >"$out_file"
+  if DOCKER_GID=1111 run_capsule_copy "$repo/capsule.sh" "$mock_bin" \
+       "$log_file" --build --update-graphify 2>"$out_file"; then
+    fail "update-graphify rejects a build in the same run"
+  else
+    pass "update-graphify rejects a build in the same run"
+  fi
+  assert_file_contains "$out_file" \
+    '--update-graphify cannot be combined with --build' \
+    "update-graphify build conflict reports a clear error"
+
+  : >"$out_file"
+  if DOCKER_GID=1111 run_capsule_copy "$repo/capsule.sh" "$mock_bin" \
+       "$log_file" --update-graphify true 2>"$out_file"; then
+    fail "update-graphify rejects a trailing command"
+  else
+    pass "update-graphify rejects a trailing command"
+  fi
+  assert_file_contains "$out_file" \
+    '--update-graphify does not take a command' \
+    "update-graphify command rejection reports a clear error"
+
+  : >"$out_file"
+  if DOCKER_GID=1111 run_capsule_copy "$repo/capsule.sh" "$mock_bin" \
+       "$log_file" --update-graphify "" 2>"$out_file"; then
+    fail "update-graphify rejects an empty trailing argument"
+  else
+    pass "update-graphify rejects an empty trailing argument"
+  fi
+  assert_file_contains "$out_file" \
+    '--update-graphify does not take a command' \
+    "empty trailing argument is still a command"
+}
 test_no_cache_flag_applies_to_build_only() {
   local tdir="$TEST_TMPDIR/build-no-cache"
   local mock_bin="$tdir/bin"
@@ -1746,7 +1949,10 @@ main() {
   test_sync_skills_contract
   test_maintain_graphify_skill_contract
   test_build_flag_runs_build_then_runtime
-  test_graphify_version_resolution_fallbacks
+  test_graphify_pin_drives_builds
+  test_update_graphify_flag
+  test_sync_skills_runs_without_graphify
+  test_graphify_doctor_contract
   test_no_cache_flag_applies_to_build_only
   test_double_dash_keeps_runtime_flags
   test_publish_and_volume_flags_forward_to_runtime

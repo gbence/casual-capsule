@@ -72,17 +72,25 @@ ENV PATH="/usr/local/share/mise/shims:$PATH"
 # Install Graphify after the stable Python tooling so version refreshes only
 # invalidate this small tail of the image.
 USER root
-ARG GRAPHIFY_VERSION=0.9.55
-RUN UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python \
+# docker/graphify-version is the committed pin and the single source of
+# truth. Bump it with "./capsule.sh --update-graphify" so a new agent-facing
+# skill arrives as a reviewable diff instead of silently on the next build.
+# GRAPHIFY_VERSION overrides it for a throwaway build.
+COPY --chmod=644 docker/graphify-version /usr/local/share/graphify-version
+ARG GRAPHIFY_VERSION=""
+RUN version="${GRAPHIFY_VERSION:-$(cat /usr/local/share/graphify-version)}" && \
+    UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python \
     UV_TOOL_DIR=/usr/local/share/uv/tools \
     UV_TOOL_BIN_DIR=/usr/local/bin \
     UV_LINK_MODE=copy \
-    mise x uv -- uv tool install "graphifyy==${GRAPHIFY_VERSION}" && \
-    printf '%s\n' "${GRAPHIFY_VERSION}" \
+    mise x uv -- uv tool install "graphifyy==${version}" && \
+    printf '%s\n' "${version}" \
       >/usr/local/share/graphify-version
 
-# Sync Graphify's agent skills into the persistent home at container start.
+# Sync Graphify's agent skills into the persistent home at container start,
+# then report any drift the sync cannot repair on its own.
 COPY --chmod=755 docker/sync-skills.sh /usr/local/bin/
+COPY --chmod=755 docker/graphify-doctor.sh /usr/local/bin/
 
 # Add Capsule's graph lifecycle skill beside Graphify's vendor skill.
 COPY skills/maintain-graphify \

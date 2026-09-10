@@ -8,6 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)"
 readonly SCRIPT_DIR
 readonly CAPSULE_CONTAINER_WORKDIR="/home/workspace"
+readonly GRAPHIFY_VERSION_FILE="docker/graphify-version"
 readonly DEFAULT_CAPSULE_UID="1000"
 readonly DEFAULT_CAPSULE_GID="100"
 readonly DEFAULT_DOCKER_GID="999"
@@ -18,6 +19,7 @@ BUILD_MODE=""
 BUILD_MODE_FLAG=""
 NO_CACHE=0
 PRIVATE_HOME=0
+UPDATE_GRAPHIFY=0
 RUNTIME_ARGS=()
 RUNTIME_OPTS=()
 CAPSULE_CUSTOM_COMPOSE="${CAPSULE_CUSTOM_COMPOSE:-}"
@@ -214,6 +216,7 @@ initialize_runtime_state() {
   BUILD_MODE_FLAG=""
   NO_CACHE=0
   PRIVATE_HOME=0
+  UPDATE_GRAPHIFY=0
   RUNTIME_ARGS=()
   RUNTIME_OPTS=()
   CAPSULE_CUSTOM_COMPOSE="${CAPSULE_CUSTOM_COMPOSE:-}"
@@ -239,6 +242,9 @@ Options:
   -v, --volume HOST:CONTAINER[:OPTIONS]  Bind-mount a host path. Repeatable.
       --build-custom  Run the custom compose build before runtime.
       --no-cache  Pass --no-cache to build commands run by this script.
+      --update-graphify  Rewrite docker/graphify-version with the newest
+                      release, then exit. Review and commit the diff, then
+                      rebuild with --build to pick it up.
   -h, --help   Show this help message.
 
 Environment:
@@ -253,7 +259,7 @@ Environment:
   CAPSULE_VOLUME   Semicolon-separated --volume specs.
   CAPSULE_WORKDIR  Workspace directory (default: cwd).
   CAPSULE_CUSTOM_COMPOSE  Optional override compose file.
-  GRAPHIFY_VERSION  Graphify version (latest release during builds).
+  GRAPHIFY_VERSION  Override the committed Graphify pin for one build.
 EOF
 }
 
@@ -382,6 +388,10 @@ parse_args() {
         ;;
       --no-cache)
         NO_CACHE=1
+        shift
+        ;;
+      --update-graphify)
+        UPDATE_GRAPHIFY=1
         shift
         ;;
       -p|--private-home)
@@ -755,7 +765,9 @@ fetch_mise_version() {
   printf '%s\n' "$mise_version"
 }
 
-# Fetch the latest stable Graphify release from the package registry.
+# Fetch the latest stable Graphify release from the package registry. Only
+# --update-graphify calls this: builds use the committed pin so an upstream
+# release never changes an agent-facing skill without review.
 fetch_graphify_version() {
   local graphify_version=""
   local version_pattern='^[0-9]+(\.[0-9]+){2}([a-zA-Z0-9.+-]+)?$'
@@ -773,6 +785,41 @@ fetch_graphify_version() {
   fi
 
   printf '%s\n' "$graphify_version"
+}
+
+# Rewrite the committed Graphify pin with the newest release and report the
+# change. Runs instead of the container, so nothing is rebuilt behind it.
+update_graphify_pin() {
+  local pin_path="$SCRIPT_DIR/$GRAPHIFY_VERSION_FILE"
+  local current=""
+  local latest=""
+
+  if [[ "$BUILD_MODE" != "none" ]]; then
+    die "--update-graphify cannot be combined with ${BUILD_MODE_FLAG}"
+  fi
+
+  if [[ "${#RUNTIME_ARGS[@]}" -gt 0 ]]; then
+    die '--update-graphify does not take a command'
+  fi
+
+  if [[ ! -f "$pin_path" ]]; then
+    die "missing $pin_path"
+  fi
+
+  if ! latest="$(fetch_graphify_version)"; then
+    die 'cannot fetch the latest Graphify release'
+  fi
+
+  current="$(tr -d '[:space:]' <"$pin_path")"
+  if [[ "$current" == "$latest" ]]; then
+    printf 'capsule: Graphify pin already at %s\n' "$current"
+    return
+  fi
+
+  printf '%s\n' "$latest" >"$pin_path"
+  printf 'capsule: Graphify pin %s -> %s\n' "$current" "$latest"
+  printf 'capsule: review %s, then rebuild with --build\n' \
+    "$GRAPHIFY_VERSION_FILE"
 }
 
 # Run "docker compose build" with the common MISE_VERSION build arg.
@@ -815,7 +862,6 @@ run_capsule_runtime() {
 
 main() {
   local mise_version=""
-  local graphify_version=""
 
   initialize_workdir_state
   initialize_user_ids
@@ -824,6 +870,13 @@ main() {
   parse_args "$@"
   configure_custom_compose
   validate_build_mode
+
+  # Rewriting the pin needs no workspace approval, Docker, or compose setup.
+  if [[ "$UPDATE_GRAPHIFY" -eq 1 ]]; then
+    update_graphify_pin
+    return
+  fi
+
   initialize_capsule_config
   configure_target_mode
 
@@ -836,15 +889,7 @@ main() {
 
   if [[ "$BUILD_MODE" != "none" ]]; then
     mise_version="$(fetch_mise_version)"
-    if [[ -z "${GRAPHIFY_VERSION:-}" ]]; then
-      if graphify_version="$(fetch_graphify_version)"; then
-        export GRAPHIFY_VERSION="$graphify_version"
-      else
-        warn 'cannot fetch latest Graphify version; using image default'
-      fi
-    else
-      export GRAPHIFY_VERSION
-    fi
+    export GRAPHIFY_VERSION="${GRAPHIFY_VERSION:-}"
     run_requested_builds "$mise_version"
   fi
 
