@@ -30,6 +30,7 @@ common developer tools.
   - [Custom Capsule images](#custom-capsule-images)
   - [Updating your GitHub token](#updating-your-github-token)
   - [Graphify knowledge graphs](#graphify-knowledge-graphs)
+    - [Running without an API key](#running-without-an-api-key)
     - [Pinned version](#pinned-version)
     - [What the graph does not contain](#what-the-graph-does-not-contain)
     - [Keeping the graph honest](#keeping-the-graph-honest)
@@ -489,6 +490,44 @@ Generated data is stored under `graphify-out/`, which Capsule git-ignores.
 Project-specific exclusions belong in `.graphifyignore` using gitignore
 syntax.
 
+#### Running without an API key
+
+Structural work needs no model at all: `extract --code-only`, `update`, and
+every query command are deterministic. Only the semantic pass and community
+labelling call an LLM.
+
+When one is needed, Graphify can route through the `claude` CLI the image
+already ships instead of a provisioned key:
+
+```bash
+capsule bash -lc "graphify cluster-only . --backend claude-cli"
+```
+
+This authenticates with the Claude subscription stored in the persistent home
+volume, so the work is billed to that plan rather than to pay-as-you-go API
+credit. No `ANTHROPIC_API_KEY` is involved.
+
+Graphify never selects this backend on its own -- it is left out of backend
+auto-detection deliberately, so pass `--backend claude-cli` on every
+invocation. It is also missing from `graphify extract --help`, which lists
+only the API backends.
+
+The backend defaults to Opus, which is oversized for structured extraction.
+Pick a cheaper model with `GRAPHIFY_CLAUDE_CLI_MODEL`:
+
+```bash
+capsule bash -lc "GRAPHIFY_CLAUDE_CLI_MODEL=haiku \
+  graphify cluster-only . --backend claude-cli"
+```
+
+Each chunk becomes its own `claude -p` subprocess, so this is markedly slower
+than an API backend on a large corpus and consumes plan quota. It suits
+incremental refreshes better than a large first build.
+
+There is no equivalent backend for the Codex CLI. Custom providers
+(`~/.graphify/providers.json`) only accept `http`/`https` endpoints, so
+reaching `codex exec` would require a local OpenAI-compatible shim.
+
 #### Pinned version
 
 `docker/graphify-version` holds the Graphify release the image installs. It
@@ -728,6 +767,9 @@ Options:
     tool downloads from GitHub.
 
 *   `GRAPHIFY_VERSION`: Override the committed Graphify pin for one build.
+
+*   `GRAPHIFY_CLAUDE_CLI_MODEL`: Model used by `--backend claude-cli`
+    (for example `haiku`). Defaults to Opus.
 
     Default: latest stable release for `capsule --build`; otherwise the
     version pinned in the Dockerfile.

@@ -536,6 +536,15 @@ test_maintain_graphify_skill_contract() {
   assert_file_contains "$MAINTAIN_GRAPHIFY_PATH" \
     'GRAPHIFY_VERSION=X.Y.Z' \
     "lifecycle skill documents image-managed upgrades"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_PATH" \
+    'capsule --update-graphify' \
+    "lifecycle skill routes upgrades through the committed pin"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_PATH" \
+    '--backend claude-cli' \
+    "lifecycle skill offers the key-free Claude CLI backend"
+  assert_file_contains "$MAINTAIN_GRAPHIFY_PATH" \
+    'GRAPHIFY_CLAUDE_CLI_MODEL' \
+    "lifecycle skill steers the CLI backend off its Opus default"
 }
 
 test_build_flag_runs_build_then_runtime() {

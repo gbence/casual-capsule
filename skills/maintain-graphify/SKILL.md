@@ -57,6 +57,36 @@ For intentional deletion, try a normal update first. Use
 comes from files or symbols intentionally removed by the current task and no
 extraction failure explains the shrinkage.
 
+## Choose an LLM backend
+
+Structural work needs no model: `graphify extract ROOT --code-only`,
+`graphify update ROOT`, and every query command are deterministic. Only the
+semantic pass and community labelling call an LLM.
+
+When one is needed and no API key is set, route through the `claude` CLI that
+Capsule already ships:
+
+```bash
+graphify cluster-only ROOT --backend claude-cli
+```
+
+It authenticates with the container's Claude subscription, so the work is
+billed to that plan and no `ANTHROPIC_API_KEY` is required. Graphify never
+selects this backend automatically, so pass `--backend claude-cli` on every
+invocation that needs a model.
+
+Set `GRAPHIFY_CLAUDE_CLI_MODEL`; the backend otherwise defaults to Opus,
+which is oversized for structured extraction:
+
+```bash
+GRAPHIFY_CLAUDE_CLI_MODEL=haiku \
+  graphify cluster-only ROOT --backend claude-cli
+```
+
+Each chunk runs as its own `claude -p` subprocess. Prefer an API backend for
+a large first build and keep the CLI for incremental refreshes. The Codex CLI
+has no equivalent backend.
+
 ## Keep integration changes explicit
 
 Use `graphify watch ROOT` only for a controlled, long-running edit session and
@@ -66,9 +96,11 @@ Do not run project-scoped agent installers implicitly because they modify
 tracked instruction or configuration files.
 
 Graphify is image-managed inside Capsule. Do not upgrade it in a running
-container. To refresh the package and vendor skills, rebuild with
-`capsule --build`; use `GRAPHIFY_VERSION=X.Y.Z` when an exact release is
-required.
+container. The installed release comes from the committed
+`docker/graphify-version` pin, so `capsule --build` alone never moves it: run
+`capsule --update-graphify` first, leave the rewritten pin for the user to
+review, then rebuild. Use `GRAPHIFY_VERSION=X.Y.Z` when one build needs an
+exact release without changing the pin.
 
 ## Finish
 
